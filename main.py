@@ -476,15 +476,18 @@ class WTBot(Star):
             pass
 
     async def _tpl_call_ai(self, event: AstrMessageEvent, prompt: str) -> str:
-        """调用 AI 模型生成模板描述。"""
+        """调用独立 AI（subagent），不受用户人格影响。"""
         provider_id = (self.config.get("template_ai_provider") or "").strip()
         if not provider_id:
             provider_id = await self.context.get_current_chat_provider_id(
                 event.unified_msg_origin)
-        # request has no timeout param, but ContextWrapper may pass it
+        isolated_prompt = (
+            f"[ROLE]\n{self._TEMPLATE_SYSTEM_PROMPT}\n[/ROLE]\n\n"
+            f"[TASK]\n{prompt}\n[/TASK]"
+        )
         resp = await self.context.llm_generate(
             chat_provider_id=provider_id,
-            prompt=prompt,
+            prompt=isolated_prompt,
         )
         return resp.completion_text
 
@@ -594,21 +597,21 @@ class WTBot(Star):
             in_desc = False
             for line in result.split("\n"):
                 l = line.strip()
-                if l.upper().startswith("SLUG:"):
+                upper = l.upper()
+                if upper.startswith("SLUG:"):
                     slug = l.split(":", 1)[1].strip()
-                elif l.upper().startswith("NAME:"):
+                elif upper.startswith("NAME:"):
                     name = l.split(":", 1)[1].strip()
-                elif l.upper().startswith("COMPONENT:"):
+                elif upper.startswith("COMPONENT:"):
                     component = l.split(":", 1)[1].strip()
-                elif l.upper().startswith("DESCRIPTION:") and l != "DESCRIPTION:":
-                    desc_lines.append(l.split(":", 1)[1].strip())
-                elif in_desc or l.upper() == "DESCRIPTION:":
+                elif upper == "DESCRIPTION:":
                     in_desc = True
-                    continue
+                elif upper.startswith("DESCRIPTION:"):
+                    # DESCRIPTION:xxx on same line
+                    desc_lines.append(l.split(":", 1)[1].strip())
+                    in_desc = True
                 elif in_desc:
                     desc_lines.append(l)
-                elif slug and not l:
-                    in_desc = True
 
             # Fallback: if not parsed, use raw result
             if not slug:
