@@ -14,7 +14,7 @@
   "default_project": {
     "description": "默认项目 slug",
     "type": "string",
-    "hint": "所有操作的默认项目，用户不再需要每次指定。可在对话中临时切换项目",
+    "hint": "所有操作的默认项目，可通过 Weblate 项目列表获取 slug。注意区分大小写",
     "default": ""
   },
   "cache_ttl": {

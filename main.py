@@ -128,7 +128,7 @@ class WTBot(Star):
 
             lines = []
             for p in projects:
-                lines.append(f"  {self._safe(p, 'name')} ({self._safe(p, 'slug')}) — {self._safe(p, 'web')}")
+                lines.append(f"  {self._safe(p, 'name')} (slug: {self._safe(p, 'slug')})")
             return f"共 {len(projects)} 个项目：\n" + "\n".join(lines)
         except Exception as e:
             return self._handle_err("list_projects", e)
@@ -154,7 +154,7 @@ class WTBot(Star):
 
             lines = []
             for c in comps:
-                lines.append(f"  {self._safe(c, 'name')} ({self._safe(c, 'slug')})")
+                lines.append(f"  {self._safe(c, 'name')} (slug: {self._safe(c, 'slug')})")
                 lines.append(f"    repo: {self._safe(c, 'repo')}  branch: {self._safe(c, 'branch')}")
                 lines.append(f"    filemask: {self._safe(c, 'filemask')}  format: {self._safe(c, 'file_format')}")
             return f"项目 {project_slug} 共 {len(comps)} 个组件：\n" + "\n".join(lines)
