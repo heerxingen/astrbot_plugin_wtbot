@@ -431,18 +431,28 @@ class WTBot(Star):
         return bool(self.config.get("enable_templates", False))
 
     def _load_templates(self) -> dict:
+        # 始终以文件为主数据源
+        file_data: dict = {}
+        file_raw = ""
+        if self._tpl_path.exists():
+            try:
+                file_raw = self._tpl_path.read_text()
+                file_data = json.loads(file_raw)
+            except Exception:
+                pass
+
+        # 热重载检测：config 有内容且与文件不同 → 用户编辑了，导入到文件
         override = (self.config.get("templates_override") or "").strip()
         if override:
             try:
-                return json.loads(override)
+                override_data = json.loads(override)
+                if json.dumps(override_data, sort_keys=True) != json.dumps(file_data, sort_keys=True):
+                    self._save_templates(override_data)
+                    return override_data
             except json.JSONDecodeError:
                 pass
-        if not self._tpl_path.exists():
-            return {}
-        try:
-            return json.loads(self._tpl_path.read_text())
-        except Exception:
-            return {}
+
+        return file_data
 
     def _save_templates(self, data: dict) -> None:
         self._tpl_path.parent.mkdir(parents=True, exist_ok=True)
