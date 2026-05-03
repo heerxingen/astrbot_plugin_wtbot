@@ -25,7 +25,7 @@
   "templates_override": {
     "description": "手动编辑模板（JSON 格式）",
     "type": "text",
-    "hint": "直接在此编辑模板 JSON，非空时优先于 plugin_data 文件。可通过聊天创建模板后再手动微调",
+    "hint": "直接编辑模板 JSON。文件为空时自动导入，LLM 创建模板后自动同步显示。可通过聊天或手动编辑",
     "default": "",
     "editor_mode": true,
     "editor_language": "json"
