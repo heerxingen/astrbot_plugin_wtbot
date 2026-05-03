@@ -13,7 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from astrbot.api.event import filter, AstrMessageEvent
+from astrbot.api.event import filter, AstrMessageEvent, MessageEventResult
 from astrbot.api.star import Context, Star
 from astrbot.api import AstrBotConfig, logger
 
@@ -402,6 +402,261 @@ class WTBot(Star):
             )
         except Exception as e:
             return self._handle_err("language_stats", e)
+
+    # ================================================================
+    # 模板系统
+    # ================================================================
+
+    _TEMPLATE_SYSTEM_PROMPT = (
+        "你是一个翻译项目模板助手。用户会描述需要创建的字符串模板规则，"
+        "你将其整理为简洁的自然语言模板描述。\n\n"
+        "模板描述应包含：\n"
+        "- 何时使用该模板\n"
+        "- 目标组件\n"
+        "- key 和 source 的格式规则\n"
+        "- 已知的中英名称映射\n\n"
+        "重要规则：\n"
+        "- 若 key 中需要包含项目专有名词（角色名、武器名、地名等），"
+        "必须在模板描述中明确注明\"这些名词需用户提供英文翻译，禁止自行音译或意译\"，"
+        "以便后续 LLM 执行时不会擅自翻译\n"
+        "- 只写规则，不写示例代码或 JSON\n"
+        "- 用中文"
+    )
+
+    @property
+    def _tpl_path(self) -> Path:
+        return Path("data/plugin_data/wtbot/templates.json")
+
+    def _tpl_enabled(self) -> bool:
+        return bool(self.config.get("enable_templates", False))
+
+    def _load_templates(self) -> dict:
+        if not self._tpl_path.exists():
+            return {}
+        try:
+            return json.loads(self._tpl_path.read_text())
+        except Exception:
+            return {}
+
+    def _save_templates(self, data: dict) -> None:
+        self._tpl_path.parent.mkdir(parents=True, exist_ok=True)
+        self._tpl_path.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+
+    async def _tpl_call_ai(self, event: AstrMessageEvent, prompt: str) -> str:
+        """调用 AI 模型生成模板描述。"""
+        provider_id = (self.config.get("template_ai_provider") or "").strip()
+        if not provider_id:
+            provider_id = await self.context.get_current_chat_provider_id(
+                event.unified_msg_origin)
+        # request has no timeout param, but ContextWrapper may pass it
+        resp = await self.context.llm_generate(
+            chat_provider_id=provider_id,
+            prompt=prompt,
+        )
+        return resp.completion_text
+
+    # ---- 返回 str 的 Tool（可 chain） ----
+
+    @filter.llm_tool(name="weblate_list_templates")
+    async def list_templates(self, event: AstrMessageEvent) -> str:
+        '''列出所有可用的字符串模板及其作用。'''
+        if not self._tpl_enabled():
+            return "模板功能未启用，请在插件配置中开启 enable_templates。"
+        try:
+            templates = self._load_templates()
+            if not templates:
+                return "当前没有任何字符串模板。可以通过对话创建。"
+            lines = ["可用模板："]
+            for slug, tpl in templates.items():
+                lines.append(f"  {tpl.get('name', slug)} (slug: {slug}) — {tpl.get('description', '')[:80]}")
+            return "\n".join(lines)
+        except Exception as e:
+            return self._handle_err("list_templates", e)
+
+    @filter.llm_tool(name="weblate_show_template")
+    async def show_template(self, event: AstrMessageEvent, template_name: str) -> str:
+        '''查看指定模板的完整自然语言描述。
+
+        Args:
+            template_name(string): 模板 slug
+        '''
+        if not self._tpl_enabled():
+            return "模板功能未启用。"
+        try:
+            templates = self._load_templates()
+            tpl = templates.get(template_name)
+            if not tpl:
+                return f"模板 {template_name} 不存在。可用模板: {', '.join(templates.keys())}"
+            return (
+                f"模板 **{tpl.get('name', template_name)}** ({template_name})：\n\n"
+                f"{tpl.get('description', '')}\n\n"
+                f"目标组件: {tpl.get('component', '未指定')}"
+            )
+        except Exception as e:
+            return self._handle_err("show_template", e)
+
+    @filter.llm_tool(name="weblate_create_unit")
+    async def create_unit(
+        self, event: AstrMessageEvent,
+        component: str = "", lang: str = "", key: str = "", value: str = "",
+    ) -> str:
+        '''创建单个翻译单元。LLM 根据模板描述推断出 key/value/component/lang 后调用。
+
+        Args:
+            component(string): 目标组件 slug
+            lang(string): 语言代码，如 en
+            key(string): 翻译 key
+            value(string): source 源字符串
+        '''
+        if not component or not key or not value:
+            return "缺少必要参数: component, key, value" + f" (got component={component}, key={key}, value={value})"
+        default_lang = (self.config.get("default_lang") or "en").strip()
+        lang = lang or default_lang
+        try:
+            result = await asyncio.to_thread(
+                self.wt.create_unit,
+                self._resolve_project(""), component, lang,
+                key=key, value=[value],
+            )
+            uid = result.get("id", "?")
+            return f"已创建 unit #{uid}: key={key}, value={value}, lang={lang}, component={component}"
+        except Exception as e:
+            return self._handle_err("create_unit", e)
+
+    # ---- yield plain_result 的 Tool（直接输出用户） ----
+
+    @filter.llm_tool(name="weblate_create_template")
+    async def create_template(self, event: AstrMessageEvent, requirement: str) -> MessageEventResult:
+        '''AI 辅助创建字符串模板。用户说"创建一个模板"时调用。
+        结果直接展示给用户。
+
+        Args:
+            requirement(string): 用户对模板的需求描述。如果用户只说想创建模板但没说内容，传空字符串并让用户补充。
+        '''
+        if not self._tpl_enabled():
+            yield event.plain_result("模板功能未启用，请在插件配置中开启 enable_templates。")
+            return
+        if not requirement.strip():
+            yield event.plain_result("请描述你的模板需求，例如：\"角色出新皮肤时在 Direct Resources 组件创建 Info/角色英文-皮肤英文 格式的字符串\"")
+            return
+        try:
+            templates = self._load_templates()
+            full_prompt = (
+                f"用户需求：{requirement}\n\n"
+                "请根据上述需求生成自然语言模板描述。\n"
+                "同时为模板起一个英文 slug（小写+下划线）和中文名称。\n"
+                "按以下格式输出（每行一项）：\n"
+                "SLUG: xxx\n"
+                "NAME: xxx\n"
+                "COMPONENT: xxx\n"
+                "DESCRIPTION:\n"
+                "xxx"
+            )
+            result = await self._tpl_call_ai(event, full_prompt)
+            # Parse AI output
+            slug = ""
+            name = ""
+            component = ""
+            desc_lines = []
+            in_desc = False
+            for line in result.split("\n"):
+                l = line.strip()
+                if l.upper().startswith("SLUG:"):
+                    slug = l.split(":", 1)[1].strip()
+                elif l.upper().startswith("NAME:"):
+                    name = l.split(":", 1)[1].strip()
+                elif l.upper().startswith("COMPONENT:"):
+                    component = l.split(":", 1)[1].strip()
+                elif l.upper().startswith("DESCRIPTION:") and l != "DESCRIPTION:":
+                    desc_lines.append(l.split(":", 1)[1].strip())
+                elif in_desc or l.upper() == "DESCRIPTION:":
+                    in_desc = True
+                    continue
+                elif in_desc:
+                    desc_lines.append(l)
+                elif slug and not l:
+                    in_desc = True
+
+            # Fallback: if not parsed, use raw result
+            if not slug:
+                slug = requirement.strip()[:30].replace(" ", "_").lower()
+            if not name:
+                name = requirement.strip()[:40]
+            if not desc_lines:
+                desc_lines = [result]
+
+            templates[slug] = {
+                "name": name,
+                "description": "\n".join(desc_lines).strip(),
+                "component": component or "?",
+            }
+            self._save_templates(templates)
+            yield event.plain_result(
+                f"模板已创建：**{name}** (slug: {slug})\n"
+                f"目标组件: {component or '?'}\n\n"
+                f"{templates[slug]['description']}"
+            )
+        except Exception as e:
+            logger.error(f"create_template failed: {e}")
+            yield event.plain_result(f"创建模板失败: {e}")
+
+    @filter.llm_tool(name="weblate_update_template")
+    async def update_template(
+        self, event: AstrMessageEvent, template_name: str, requirement: str
+    ) -> MessageEventResult:
+        '''更新指定模板的自然语言描述。AI 根据 requirement 重写模板。
+
+        Args:
+            template_name(string): 模板 slug
+            requirement(string): 需要修改的内容描述
+        '''
+        if not self._tpl_enabled():
+            yield event.plain_result("模板功能未启用。")
+            return
+        try:
+            templates = self._load_templates()
+            tpl = templates.get(template_name)
+            if not tpl:
+                yield event.plain_result(f"模板 {template_name} 不存在。可用: {', '.join(templates.keys())}")
+                return
+            full_prompt = (
+                f"当前模板描述：\n{tpl.get('description', '')}\n\n"
+                f"修改需求：{requirement}\n\n"
+                "请根据修改需求更新模板描述，保持其他规则不变。只输出更新后的描述文本。"
+            )
+            result = await self._tpl_call_ai(event, full_prompt)
+            tpl["description"] = result.strip()
+            self._save_templates(templates)
+            yield event.plain_result(
+                f"模板 **{tpl.get('name', template_name)}** 已更新：\n\n{result}"
+            )
+        except Exception as e:
+            logger.error(f"update_template failed: {e}")
+            yield event.plain_result(f"更新模板失败: {e}")
+
+    @filter.llm_tool(name="weblate_delete_template")
+    async def delete_template(
+        self, event: AstrMessageEvent, template_name: str
+    ) -> MessageEventResult:
+        '''删除指定模板。
+
+        Args:
+            template_name(string): 模板 slug
+        '''
+        if not self._tpl_enabled():
+            yield event.plain_result("模板功能未启用。")
+            return
+        try:
+            templates = self._load_templates()
+            tpl = templates.pop(template_name, None)
+            if tpl is None:
+                yield event.plain_result(f"模板 {template_name} 不存在。")
+                return
+            self._save_templates(templates)
+            yield event.plain_result(f"模板 **{tpl.get('name', template_name)}** 已删除。")
+        except Exception as e:
+            logger.error(f"delete_template failed: {e}")
+            yield event.plain_result(f"删除模板失败: {e}")
 
     # ================================================================
     # 生命周期

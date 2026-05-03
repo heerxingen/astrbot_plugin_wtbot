@@ -17,6 +17,18 @@
     "hint": "所有操作的默认项目，可通过 Weblate 项目列表获取 slug。注意区分大小写",
     "default": ""
   },
+  "enable_templates": {
+    "description": "启用字符串模板功能",
+    "type": "bool",
+    "default": false
+  },
+  "template_ai_provider": {
+    "description": "创建模板时调用的 AI 模型",
+    "type": "string",
+    "hint": "用于将用户需求转为自然语言模板描述",
+    "default": "",
+    "_special": "select_provider"
+  },
   "cache_ttl": {
     "description": "缓存过期时间（秒）",
     "type": "int",
