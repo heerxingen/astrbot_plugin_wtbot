@@ -466,7 +466,14 @@ class WTBot(Star):
 
     def _save_templates(self, data: dict) -> None:
         self._tpl_path.parent.mkdir(parents=True, exist_ok=True)
-        self._tpl_path.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+        raw = json.dumps(data, ensure_ascii=False, indent=2)
+        self._tpl_path.write_text(raw)
+        # 同步到 config，WebUI 实时可见
+        self.config["templates_override"] = raw
+        try:
+            self.config.save_config()
+        except Exception:
+            pass
 
     async def _tpl_call_ai(self, event: AstrMessageEvent, prompt: str) -> str:
         """调用 AI 模型生成模板描述。"""
