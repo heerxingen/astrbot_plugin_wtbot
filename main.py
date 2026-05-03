@@ -433,24 +433,34 @@ class WTBot(Star):
     def _load_templates(self) -> dict:
         # 始终以文件为主数据源
         file_data: dict = {}
-        file_raw = ""
         if self._tpl_path.exists():
             try:
-                file_raw = self._tpl_path.read_text()
-                file_data = json.loads(file_raw)
+                file_data = json.loads(self._tpl_path.read_text())
             except Exception:
                 pass
 
-        # 热重载检测：config 有内容且与文件不同 → 用户编辑了，导入到文件
+        # 热重载检测：config 与文件不同 → 同步
         override = (self.config.get("templates_override") or "").strip()
-        if override:
-            try:
-                override_data = json.loads(override)
-                if json.dumps(override_data, sort_keys=True) != json.dumps(file_data, sort_keys=True):
-                    self._save_templates(override_data)
-                    return override_data
-            except json.JSONDecodeError:
-                pass
+        try:
+            override_data = json.loads(override) if override else {}
+        except json.JSONDecodeError:
+            override_data = {}
+
+        file_sorted = json.dumps(file_data, sort_keys=True, ensure_ascii=False)
+        override_sorted = json.dumps(override_data, sort_keys=True, ensure_ascii=False)
+
+        if override_sorted != file_sorted:
+            if override_data and not file_data:
+                # config 有内容、文件为空 → 用户粘贴了，导入到文件
+                self._save_templates(override_data)
+                return override_data
+            # 文件有内容、与 config 不同 → 文件更新了（LLM 改的），同步到 config
+            if file_data:
+                self.config["templates_override"] = json.dumps(file_data, ensure_ascii=False, indent=2)
+                try:
+                    self.config.save_config()
+                except Exception:
+                    pass
 
         return file_data
 
