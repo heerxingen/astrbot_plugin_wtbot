@@ -1,5 +1,6 @@
 name: astrbot_plugin_wtbot
 display_name: Weblate Bot
-description: 通过自然语言管理 Weblate 翻译项目 — 查看进度、搜索翻译、操作仓库等。提供 LLM Tools 由 AI 自动调度。
+desc: 通过自然语言管理 Weblate 翻译项目 — 查看进度、搜索翻译、操作仓库等。提供 LLM Tools 由 AI 自动调度。
+author: heerxingen
 version: 0.1.0
 astrbot_version: ">=4.16,<5"
