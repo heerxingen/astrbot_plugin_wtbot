@@ -1,0 +1,20 @@
+{
+  "weblate_url": {
+    "description": "Weblate 实例地址",
+    "type": "string",
+    "hint": "例如 https://translate.example.com，不要以 / 结尾",
+    "default": ""
+  },
+  "weblate_token": {
+    "description": "Weblate API Token",
+    "type": "string",
+    "hint": "在 Weblate 用户 Profile → API Tokens 创建。以 wlu_ 或 wlp_ 开头",
+    "default": ""
+  },
+  "cache_ttl": {
+    "description": "缓存过期时间（秒）",
+    "type": "int",
+    "hint": "查询结果缓存多久后重新拉取，0 表示不缓存",
+    "default": 300
+  }
+}
