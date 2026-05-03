@@ -495,7 +495,7 @@ class WTBot(Star):
 
     @filter.llm_tool(name="weblate_list_templates")
     async def list_templates(self, event: AstrMessageEvent) -> str:
-        '''列出所有可用的字符串模板及其作用。'''
+        '''列出所有本地存储的字符串模板（非 Weblate，仅供 AstrBot AI 参考）。'''
         if not self._tpl_enabled():
             return "模板功能未启用，请在插件配置中开启 enable_templates。"
         try:
@@ -511,7 +511,7 @@ class WTBot(Star):
 
     @filter.llm_tool(name="weblate_show_template")
     async def show_template(self, event: AstrMessageEvent, template_name: str) -> str:
-        '''查看指定模板的完整自然语言描述。
+        '''查看某个本地模板的完整描述（非 Weblate，仅供 AI 参考）。
 
         Args:
             template_name(string): 模板 slug
@@ -563,8 +563,8 @@ class WTBot(Star):
 
     @filter.llm_tool(name="weblate_create_template")
     async def create_template(self, event: AstrMessageEvent, requirement: str) -> MessageEventResult:
-        '''AI 辅助创建字符串模板。用户说"创建一个模板"时调用。
-        结果直接展示给用户。
+        '''AI 辅助创建字符串模板。模板存储在本地插件数据目录，供 AstrBot 的 AI 调用参考，与 Weblate 无关。
+        用户说"创建一个模板"时调用。结果直接展示给用户。
 
         Args:
             requirement(string): 用户对模板的需求描述。如果用户只说想创建模板但没说内容，传空字符串并让用户补充。
@@ -640,7 +640,7 @@ class WTBot(Star):
     async def update_template(
         self, event: AstrMessageEvent, template_name: str, requirement: str
     ) -> MessageEventResult:
-        '''更新指定模板的自然语言描述。AI 根据 requirement 重写模板。
+        '''更新本地模板的描述（非 Weblate 操作）。AI 根据 requirement 重写模板。
 
         Args:
             template_name(string): 模板 slug
@@ -674,7 +674,7 @@ class WTBot(Star):
     async def delete_template(
         self, event: AstrMessageEvent, template_name: str
     ) -> MessageEventResult:
-        '''删除指定模板。
+        '''删除本地模板（非 Weblate 操作）。
 
         Args:
             template_name(string): 模板 slug
