@@ -96,6 +96,10 @@ class WTBot(Star):
         filled = round(pct / 10)
         return "█" * filled + "░" * (10 - filled)
 
+    def _resolve_project(self, project_slug: str) -> str:
+        """项目 slug 为空时回退到配置的默认项目。"""
+        return project_slug or (self.config.get("default_project") or "").strip()
+
     def _handle_err(self, name: str, e: Exception) -> str:
         if isinstance(e, WeblateError):
             return f"Weblate API 错误 [{e.status_code}]: {e.detail}"
@@ -130,12 +134,13 @@ class WTBot(Star):
             return self._handle_err("list_projects", e)
 
     @filter.llm_tool(name="weblate_list_components")
-    async def list_components(self, event: AstrMessageEvent, project_slug: str) -> str:
-        '''列出某个翻译项目下的所有组件。
+    async def list_components(self, event: AstrMessageEvent, project_slug: str = "") -> str:
+        '''列出翻译项目下的所有组件。
 
         Args:
-            project_slug(string): 项目 slug，从 list_projects 结果中获取
+            project_slug(string): 项目 slug，可选，默认使用配置的默认项目
         '''
+        project_slug = self._resolve_project(project_slug)
         try:
             cache_key = f"components_{project_slug}"
             cached = self._cache_get(cache_key)
@@ -158,14 +163,15 @@ class WTBot(Star):
 
     @filter.llm_tool(name="weblate_translation_status")
     async def translation_status(
-        self, event: AstrMessageEvent, project_slug: str, component_slug: str
+        self, event: AstrMessageEvent, project_slug: str = "", component_slug: str = ""
     ) -> str:
-        '''查看某组件的翻译进度统计，包含各语言的翻译百分比、未翻译数等。
+        '''查看翻译进度统计。用户说"翻译进度"、"还有多少没翻"时调用。
 
         Args:
-            project_slug(string): 项目 slug
+            project_slug(string): 项目 slug，可选，默认使用配置的默认项目
             component_slug(string): 组件 slug
         '''
+        project_slug = self._resolve_project(project_slug)
         try:
             cache_key = f"translations_{project_slug}_{component_slug}"
             cached = self._cache_get(cache_key)
@@ -198,17 +204,18 @@ class WTBot(Star):
     @filter.llm_tool(name="weblate_translation_changes")
     async def translation_changes(
         self, event: AstrMessageEvent,
-        project_slug: str, component_slug: str,
+        project_slug: str = "", component_slug: str = "",
         lang: str = "", hours: int = 24,
     ) -> str:
         '''查看翻译变更历史。用户询问"最近有谁改了翻译"时调用。
 
         Args:
-            project_slug(string): 项目 slug
+            project_slug(string): 项目 slug，可选，默认使用配置的默认项目
             component_slug(string): 组件 slug
             lang(string): 语言代码，可选，如 zh_Hans。不填则显示所有语言
             hours(number): 最近多少小时，默认 24
         '''
+        project_slug = self._resolve_project(project_slug)
         try:
             since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
             params = {"timestamp_after": since}
@@ -239,14 +246,15 @@ class WTBot(Star):
     @filter.llm_tool(name="weblate_repository_status")
     async def repository_status(
         self, event: AstrMessageEvent,
-        project_slug: str, component_slug: str = "",
+        project_slug: str = "", component_slug: str = "",
     ) -> str:
         '''查看 VCS 仓库状态。用户问"仓库状态"、"有没有待推送"时调用。
 
         Args:
-            project_slug(string): 项目 slug
+            project_slug(string): 项目 slug，可选，默认使用配置的默认项目
             component_slug(string): 组件 slug，可选。不填则显示所有组件
         '''
+        project_slug = self._resolve_project(project_slug)
         try:
             if component_slug:
                 repo = await asyncio.to_thread(
@@ -281,14 +289,15 @@ class WTBot(Star):
 
     @filter.llm_tool(name="weblate_repository_pull")
     async def repository_pull(
-        self, event: AstrMessageEvent, project_slug: str, component_slug: str
+        self, event: AstrMessageEvent, project_slug: str = "", component_slug: str = ""
     ) -> str:
         '''从远程仓库拉取最新翻译文件。执行前建议让用户确认。
 
         Args:
-            project_slug(string): 项目 slug
+            project_slug(string): 项目 slug，可选，默认使用配置的默认项目
             component_slug(string): 组件 slug
         '''
+        project_slug = self._resolve_project(project_slug)
         try:
             result = await asyncio.to_thread(
                 self.wt.repo_component, project_slug, component_slug, "pull")
@@ -299,14 +308,15 @@ class WTBot(Star):
 
     @filter.llm_tool(name="weblate_repository_push")
     async def repository_push(
-        self, event: AstrMessageEvent, project_slug: str, component_slug: str
+        self, event: AstrMessageEvent, project_slug: str = "", component_slug: str = ""
     ) -> str:
         '''推送 Weblate 翻译变更到远程仓库。执行前建议让用户确认。
 
         Args:
-            project_slug(string): 项目 slug
+            project_slug(string): 项目 slug，可选，默认使用配置的默认项目
             component_slug(string): 组件 slug
         '''
+        project_slug = self._resolve_project(project_slug)
         try:
             result = await asyncio.to_thread(
                 self.wt.repo_component, project_slug, component_slug, "push")
@@ -318,16 +328,17 @@ class WTBot(Star):
     @filter.llm_tool(name="weblate_search_unit")
     async def search_unit(
         self, event: AstrMessageEvent,
-        project_slug: str, component_slug: str, lang: str, query: str,
+        project_slug: str = "", component_slug: str = "", lang: str = "", query: str = "",
     ) -> str:
         '''在翻译单元中搜索关键词。用户问"xxx 怎么翻译的"时调用。
 
         Args:
-            project_slug(string): 项目 slug
+            project_slug(string): 项目 slug，可选，默认使用配置的默认项目
             component_slug(string): 组件 slug
             lang(string): 语言代码，如 zh_Hans
             query(string): 搜索关键词
         '''
+        project_slug = self._resolve_project(project_slug)
         try:
             units = await asyncio.to_thread(
                 lambda: list(self.wt.list_translation_units(project_slug, component_slug, lang, q=query)))

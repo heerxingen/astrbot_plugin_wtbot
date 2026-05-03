@@ -11,6 +11,12 @@
     "hint": "在 Weblate 用户 Profile → API Tokens 创建。以 wlu_ 或 wlp_ 开头",
     "default": ""
   },
+  "default_project": {
+    "description": "默认项目 slug",
+    "type": "string",
+    "hint": "所有操作的默认项目，用户不再需要每次指定。可在对话中临时切换项目",
+    "default": ""
+  },
   "cache_ttl": {
     "description": "缓存过期时间（秒）",
     "type": "int",
