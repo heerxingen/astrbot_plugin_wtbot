@@ -22,6 +22,14 @@
     "type": "bool",
     "default": false
   },
+  "templates_override": {
+    "description": "手动编辑模板（JSON 格式）",
+    "type": "text",
+    "hint": "直接在此编辑模板 JSON，非空时优先于 plugin_data 文件。可通过聊天创建模板后再手动微调",
+    "default": "",
+    "editor_mode": true,
+    "editor_language": "json"
+  },
   "template_ai_provider": {
     "description": "创建模板时调用的 AI 模型",
     "type": "string",

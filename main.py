@@ -431,6 +431,12 @@ class WTBot(Star):
         return bool(self.config.get("enable_templates", False))
 
     def _load_templates(self) -> dict:
+        override = (self.config.get("templates_override") or "").strip()
+        if override:
+            try:
+                return json.loads(override)
+            except json.JSONDecodeError:
+                pass
         if not self._tpl_path.exists():
             return {}
         try:
