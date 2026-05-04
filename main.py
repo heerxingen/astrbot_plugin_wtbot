@@ -413,9 +413,9 @@ class WTBot(Star):
         "三段要求：\n"
         "1. 模板名称：简洁中文名称\n"
         "2. 模板内容：自然语言规则描述，包含何时使用、key/source 格式规则、已知名称映射\n"
-        "3. 模板所需参数：列出执行此模板时 LLM 需要向用户收集的信息。"
-        "必须包含\"目标组件\"参数（We​blate 组件 slug）。"
-        "每个参数注明名称、说明、是否必填。若参数可 LLM 自行推断则标注\"可推断\"\n\n"
+        "3. 模板所需参数：列出执行此模板时 LLM 需要向用户收集的信息。\n"
+        "   必须包含\"目标组件\"参数（Weblate 组件 slug）。\n"
+        "   每个参数注明名称、说明、是否必填。若参数可 LLM 自行推断则标注\"可推断\"\n\n"
         "重要规则：\n"
         "- 若参数值需写入 key 且属于项目专有名词，必须在参数说明中强调\"需用户提供英文翻译，禁止 AI 自行翻译\"\n"
         "- 只写规则，不写示例代码或 JSON\n"
@@ -656,10 +656,15 @@ class WTBot(Star):
                 "params": params,
             }
             self._save_templates(templates)
+            params_summary = ""
+            if params:
+                for p in params:
+                    req = "必填" if p.get("required", True) else "可选"
+                    params_summary += f"  - {p.get('name', '?')} ({req}): {p.get('desc', '')}\n"
             yield event.plain_result(
-                f"模板已创建：**{name}** (slug: {slug})\n"
-                f"目标组件: {component or '?'}\n\n"
-                f"{templates[slug]['description']}"
+                f"模板已创建：**{name}** (slug: {slug})\n\n"
+                f"**模板内容：**\n{templates[slug]['description']}\n\n"
+                f"**所需参数：**\n{params_summary or '无'}"
             )
         except Exception as e:
             logger.error(f"create_template failed: {e}")
@@ -704,16 +709,15 @@ class WTBot(Star):
                 elif upper == "DESCRIPTION:":
                     tpl["description"] = ""; section = "desc"
                 elif upper == "PARAMS:":
-                    section = "params"
                     try:
                         raw = result.split("PARAMS:", 1)[1].strip()
                         raw = raw.replace("```json", "").replace("```", "")
                         tpl["params"] = json.loads(raw)
                         if isinstance(tpl["params"], dict):
                             tpl["params"] = list(tpl["params"].values())
-                        section = ""
                     except Exception:
                         pass
+                    section = ""
                 elif section == "desc":
                     tpl["description"] += l + "\n"
             tpl["description"] = tpl.get("description", "").strip()
