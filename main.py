@@ -178,7 +178,7 @@ class WTBot(Star):
             if not translations:
                 return f"{project_slug}/{component_slug} 没有翻译。"
 
-            lines = [f"{project_slug}/{component_slug} 翻译进度："]
+            lines = [f"📊 {project_slug}/{component_slug} 翻译进度"]
             for t in translations:
                 lang_name = self._safe(t, "language", "name")
                 lang_code = self._safe(t, "language_code")
@@ -188,8 +188,15 @@ class WTBot(Star):
                 fuzzy = self._safe(t, "fuzzy", default="0")
                 failing = self._safe(t, "failing_checks", default="0")
                 bar = self._pct_bar(pct)
+                # emoji 颜色
+                if pct >= 80: icon = "🟢"
+                elif pct >= 50: icon = "🟡"
+                else: icon = "🔴"
+                extra = ""
+                if int(fuzzy) > 0: extra += f" 📝{fuzzy}"
+                if int(failing) > 0: extra += f" ❌{failing}"
                 lines.append(
-                    f"  {bar} {lang_name} ({lang_code}) — {pct}% ({trans}/{total})  fuzzy:{fuzzy} fail:{failing}"
+                    f"  {icon} {lang_name} ({lang_code}) {bar} {pct}% ({trans}/{total}){extra}"
                 )
             return "\n".join(lines)
         except Exception as e:
@@ -432,22 +439,23 @@ class WTBot(Star):
     async def autotranslate(
         self, event: AstrMessageEvent,
         project_slug: str = "", component_slug: str = "", lang: str = "",
-        mode: str = "translate",
+        mode: str = "translate", filter_type: str = "all",
     ) -> str:
-        '''触发 Weblate 批量自动翻译。会用机器翻译填充未翻译的字符串。建议执行前先确认。
+        '''触发 Weblate 批量自动翻译。建议执行前先确认。
 
         Args:
             project_slug(string): 项目 slug（非名称）
             component_slug(string): 组件 slug（非名称）
             lang(string): 目标语言代码
             mode(string): 模式 — translate(直接翻译), suggest(仅建议), fuzzy(标记需编辑)。默认 translate
+            filter_type(string): 筛选范围 — all(全部), nontranslated(未翻译), todo(待办), fuzzy(需编辑), check(检查失败)。默认 all
         '''
         project_slug = self._resolve_project(project_slug)
         try:
             result = await asyncio.to_thread(
                 self.wt.autotranslate, project_slug, component_slug, lang,
-                mode=mode)
-            return f"自动翻译已触发：{project_slug}/{component_slug}/{lang} mode={mode}\n结果: {result}"
+                mode=mode, filter_type=filter_type)
+            return f"自动翻译已触发：{project_slug}/{component_slug}/{lang} mode={mode} filter={filter_type}\n结果: {result}"
         except Exception as e:
             return self._handle_err("autotranslate", e)
 
@@ -636,7 +644,7 @@ class WTBot(Star):
         "1. 模板名称：简洁中文名称\n"
         "2. 模板内容：自然语言规则描述，包含何时使用、key/source 格式规则、已知名称映射\n"
         "3. 模板所需参数：列出执行此模板时 LLM 需要向用户收集的信息。\n"
-        "   必须包含\"目标组件\"参数（Weblate 组件 slug）。\n"
+        "   必须包含\"目标项目\"和\"目标组件\"参数（Weblate 项目/组件 slug）。\n"
         "   每个参数注明名称、说明、是否必填。若参数可 LLM 自行推断则标注\"可推断\"\n\n"
         "重要规则：\n"
         "- 若参数值需写入 key 且属于项目专有名词，必须在参数说明中强调\"需用户提供英文翻译，禁止 AI 自行翻译\"\n"
@@ -767,16 +775,19 @@ class WTBot(Star):
     @filter.llm_tool(name="weblate_create_unit")
     async def create_unit(
         self, event: AstrMessageEvent,
-        component: str = "", lang: str = "", key: str = "", value: str = "",
+        project_slug: str = "", component: str = "", lang: str = "",
+        key: str = "", value: str = "",
     ) -> str:
-        '''创建单个翻译单元。LLM 根据模板描述推断出 key/value/component/lang 后调用。
+        '''创建单个翻译单元。LLM 根据模板描述推断参数后调用。
 
         Args:
-            component(string): 目标组件 slug
+            project_slug(string): 项目 slug（非名称）。可选，默认使用配置的默认项目
+            component(string): 目标组件 slug（非名称）
             lang(string): 语言代码，如 en
             key(string): 翻译 key
             value(string): source 源字符串
         '''
+        project_slug = self._resolve_project(project_slug)
         if not component or not key or not value:
             return "缺少必要参数: component, key, value" + f" (got component={component}, key={key}, value={value})"
         default_lang = (self.config.get("default_lang") or "en").strip()
@@ -784,11 +795,11 @@ class WTBot(Star):
         try:
             result = await asyncio.to_thread(
                 self.wt.create_unit,
-                self._resolve_project(""), component, lang,
+                project_slug, component, lang,
                 key=key, value=[value],
             )
             uid = result.get("id", "?")
-            return f"已创建 unit #{uid}: key={key}, value={value}, lang={lang}, component={component}"
+            return f"已创建 unit #{uid}: key={key}, value={value}, lang={lang}, project={project_slug}, component={component}"
         except Exception as e:
             return self._handle_err("create_unit", e)
 
@@ -867,11 +878,10 @@ class WTBot(Star):
             if not desc_lines:
                 desc_lines = [result]
 
-            # 确保 component 在 params 中
-            if component and component != "?":
-                has_comp = any(p.get("name", "") == "目标组件" for p in params)
-                if not has_comp:
-                    params.append({"name": "目标组件", "desc": "We​blate 组件 slug", "required": True})
+            # 确保项目、组件在 params 中
+            for pname, pdesc in [("目标项目", "We​blate 项目 slug"), ("目标组件", "We​blate 组件 slug")]:
+                if not any(p.get("name", "") == pname for p in params):
+                    params.append({"name": pname, "desc": pdesc, "required": True})
             templates[slug] = {
                 "name": name,
                 "description": "\n".join(desc_lines).strip(),
@@ -974,6 +984,86 @@ class WTBot(Star):
         except Exception as e:
             logger.error(f"delete_template failed: {e}")
             yield event.plain_result(f"删除模板失败: {e}")
+
+    @filter.llm_tool(name="weblate_backup_now")
+    async def backup_now(self, event: AstrMessageEvent) -> MessageEventResult:
+        '''手动触发一次仓库备份（小时级）。结果直接展示。'''
+        if not self._backup_cfg.get("enabled", False):
+            yield event.plain_result("备份功能未启用，请在插件配置中开启。")
+            return
+        try:
+            await asyncio.to_thread(self._do_backup, "manual", 99)
+            yield event.plain_result("手动备份已完成。")
+        except Exception as e:
+            yield event.plain_result(f"备份失败: {e}")
+
+    @filter.llm_tool(name="weblate_failing_checks")
+    async def failing_checks(
+        self, event: AstrMessageEvent,
+        project_slug: str = "", component_slug: str = "", lang: str = "",
+    ) -> str:
+        '''列出检查失败的翻译单元。用户问"哪些翻译有问题"时调用。
+
+        Args:
+            project_slug(string): 项目 slug（非名称）
+            component_slug(string): 组件 slug（非名称）
+            lang(string): 语言代码，如 zh_Hans
+        '''
+        project_slug = self._resolve_project(project_slug)
+        try:
+            units = await asyncio.to_thread(
+                lambda: list(self.wt.list_translation_units(project_slug, component_slug, lang)))
+            failing = [u for u in units if u.get("has_failing_check")]
+            if not failing:
+                return f"{project_slug}/{component_slug}/{lang} 没有检查失败的翻译。"
+            limit = min(len(failing), 20)
+            lines = [f"❌ {project_slug}/{component_slug}/{lang} 检查失败 ({limit}/{len(failing)})："]
+            for u in failing[:20]:
+                src = u.get("source", "")
+                if isinstance(src, list):
+                    src = " | ".join(src)
+                tgt = u.get("target", "(未翻译)")
+                if isinstance(tgt, list):
+                    tgt = " | ".join(tgt) if tgt else "(未翻译)"
+                lines.append(f"  #{self._safe(u, 'id')} {str(src)[:50]}")
+                lines.append(f"     → {str(tgt)[:60]}")
+            return "\n".join(lines)
+        except Exception as e:
+            return self._handle_err("failing_checks", e)
+
+    @filter.llm_tool(name="weblate_list_unit_translations")
+    async def list_unit_translations(
+        self, event: AstrMessageEvent, unit_id: int,
+    ) -> str:
+        '''查看一条源字符串在所有语言中的翻译。输入 unit_id。
+
+        Args:
+            unit_id(number): 源字符串 unit ID
+        '''
+        try:
+            unit = await asyncio.to_thread(self.wt.get_unit, unit_id)
+            translations = await asyncio.to_thread(self.wt.list_unit_translations, unit_id)
+            src = unit.get("source", "")
+            if isinstance(src, list):
+                src = " | ".join(src)
+            if not translations:
+                return f"#{unit_id} {str(src)[:60]}\n没有其他语言的翻译。"
+            lines = [f"📝 #{unit_id} {str(src)[:60]}"]
+            for t in translations:
+                if isinstance(t, dict):
+                    lang_url = t.get("translation", "")
+                    lang_code = lang_url.rstrip("/").split("/")[-1] if lang_url else "?"
+                    tgt = t.get("target", [])
+                    if isinstance(tgt, list):
+                        tgt_str = " | ".join(tgt) if tgt else "(未翻译)"
+                    else:
+                        tgt_str = str(tgt) if tgt else "(未翻译)"
+                    st = {0: "⬜", 10: "🟡", 20: "🟢", 30: "✅"}.get(
+                        int(self._safe(t, "state", default="0")), "❓")
+                    lines.append(f"  {st} {lang_code}: {tgt_str[:60]}")
+            return "\n".join(lines)
+        except Exception as e:
+            return self._handle_err("list_unit_translations", e)
 
     # ================================================================
     # 定时备份
