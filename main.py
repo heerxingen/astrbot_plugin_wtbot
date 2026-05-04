@@ -138,7 +138,7 @@ class WTBot(Star):
         '''列出翻译项目下的所有组件。
 
         Args:
-            project_slug(string): 项目 slug，可选，默认使用配置的默认项目
+            project_slug(string): 项目 slug（非名称）。若用户用名称，先调 weblate_list_projects 获取列表从中匹配。可选，默认使用配置的默认项目
         '''
         project_slug = self._resolve_project(project_slug)
         try:
@@ -168,8 +168,8 @@ class WTBot(Star):
         '''查看翻译进度统计。用户说"翻译进度"、"还有多少没翻"时调用。
 
         Args:
-            project_slug(string): 项目 slug，可选，默认使用配置的默认项目
-            component_slug(string): 组件 slug
+            project_slug(string): 项目 slug（非名称）。若用户用名称，先调 weblate_list_projects 获取列表从中匹配。可选，默认使用配置的默认项目
+            component_slug(string): 组件 slug（非名称）。若用户用名称，先调 weblate_list_components 获取列表从中匹配
         '''
         project_slug = self._resolve_project(project_slug)
         try:
@@ -210,8 +210,8 @@ class WTBot(Star):
         '''查看翻译变更历史。用户询问"最近有谁改了翻译"时调用。
 
         Args:
-            project_slug(string): 项目 slug，可选，默认使用配置的默认项目
-            component_slug(string): 组件 slug
+            project_slug(string): 项目 slug（非名称）。若用户用名称，先调 weblate_list_projects 获取列表从中匹配。可选，默认使用配置的默认项目
+            component_slug(string): 组件 slug（非名称）。若用户用名称，先调 weblate_list_components 获取列表从中匹配
             lang(string): 语言代码，可选，如 zh_Hans。不填则显示所有语言
             hours(number): 最近多少小时，默认 24
         '''
@@ -251,8 +251,8 @@ class WTBot(Star):
         '''查看 VCS 仓库状态。用户问"仓库状态"、"有没有待推送"时调用。
 
         Args:
-            project_slug(string): 项目 slug，可选，默认使用配置的默认项目
-            component_slug(string): 组件 slug，可选。不填则显示所有组件
+            project_slug(string): 项目 slug（非名称）。若用户用名称，先调 weblate_list_projects 获取列表从中匹配。可选，默认使用配置的默认项目
+            component_slug(string): 组件 slug（非名称）。若用户用名称，先调 weblate_list_components 获取列表从中匹配，可选。不填则显示所有组件
         '''
         project_slug = self._resolve_project(project_slug)
         try:
@@ -294,8 +294,8 @@ class WTBot(Star):
         '''从远程仓库拉取最新翻译文件。执行前建议让用户确认。
 
         Args:
-            project_slug(string): 项目 slug，可选，默认使用配置的默认项目
-            component_slug(string): 组件 slug
+            project_slug(string): 项目 slug（非名称）。若用户用名称，先调 weblate_list_projects 获取列表从中匹配。可选，默认使用配置的默认项目
+            component_slug(string): 组件 slug（非名称）。若用户用名称，先调 weblate_list_components 获取列表从中匹配
         '''
         project_slug = self._resolve_project(project_slug)
         try:
@@ -313,8 +313,8 @@ class WTBot(Star):
         '''推送 Weblate 翻译变更到远程仓库。执行前建议让用户确认。
 
         Args:
-            project_slug(string): 项目 slug，可选，默认使用配置的默认项目
-            component_slug(string): 组件 slug
+            project_slug(string): 项目 slug（非名称）。若用户用名称，先调 weblate_list_projects 获取列表从中匹配。可选，默认使用配置的默认项目
+            component_slug(string): 组件 slug（非名称）。若用户用名称，先调 weblate_list_components 获取列表从中匹配
         '''
         project_slug = self._resolve_project(project_slug)
         try:
@@ -333,8 +333,8 @@ class WTBot(Star):
         '''在翻译单元中搜索关键词。用户问"xxx 怎么翻译的"时调用。
 
         Args:
-            project_slug(string): 项目 slug，可选，默认使用配置的默认项目
-            component_slug(string): 组件 slug
+            project_slug(string): 项目 slug（非名称）。若用户用名称，先调 weblate_list_projects 获取列表从中匹配。可选，默认使用配置的默认项目
+            component_slug(string): 组件 slug（非名称）。若用户用名称，先调 weblate_list_components 获取列表从中匹配
             lang(string): 语言代码，如 zh_Hans
             query(string): 搜索关键词
         '''
@@ -519,7 +519,7 @@ class WTBot(Star):
         '''查看某个本地模板的完整描述（非 Weblate，仅供 AI 参考）。
 
         Args:
-            template_name(string): 模板 slug
+            template_name(string): 模板 slug（非名称）。若不知道 slug，先调 weblate_list_templates 获取列表从中匹配
         '''
         if not self._tpl_enabled():
             return "模板功能未启用。"
@@ -677,7 +677,7 @@ class WTBot(Star):
         '''更新本地模板的描述（非 Weblate 操作）。AI 根据 requirement 重写模板。
 
         Args:
-            template_name(string): 模板 slug
+            template_name(string): 模板 slug（非名称）。若不知道 slug，先调 weblate_list_templates 获取列表从中匹配
             requirement(string): 需要修改的内容描述
         '''
         if not self._tpl_enabled():
@@ -736,7 +736,7 @@ class WTBot(Star):
         '''删除本地模板（非 Weblate 操作）。
 
         Args:
-            template_name(string): 模板 slug
+            template_name(string): 模板 slug（非名称）。若不知道 slug，先调 weblate_list_templates 获取列表从中匹配
         '''
         if not self._tpl_enabled():
             yield event.plain_result("模板功能未启用。")
