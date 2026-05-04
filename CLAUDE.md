@@ -2,13 +2,13 @@
 
 ## 项目概述
 
-WTBot 是 AstrBot 框架的插件，通过 LLM Tool 机制让用户用自然语言管理 Weblate 翻译项目。v1.3.3，28 个 LLM Tool + 模板系统 + 定时备份 + 黑名单过滤。
+WTBot 是 AstrBot 框架的插件，通过 LLM Tool 机制让用户用自然语言管理 Weblate 翻译项目。包含 LLM Tools、模板系统、定时备份、黑名单过滤。
 
 ## 项目结构
 
 ```
 WTBot/
-├── main.py              # 核心：Star 子类 + 全部 LLM Tool（~1350 行）
+├── main.py              # 核心：Star 子类 + 全部 LLM Tool
 ├── wtapi/               # 内嵌的 Weblate SDK（148 方法，仅依赖 requests）
 ├── metadata.yaml        # AstrBot 插件元数据（name/desc/version）
 ├── _conf_schema.json    # 插件配置 Schema（WebUI 面板）
