@@ -108,12 +108,15 @@ class WTBot(Star):
 
     @filter.llm_tool(name="weblate_list_projects")
     async def list_projects(self, event: AstrMessageEvent) -> str:
-        '''列出 Weblate 上的所有翻译项目。用户询问"有哪些项目"、"项目列表"时调用。'''
+        """列出 Weblate 上的所有翻译项目。用户询问"有哪些项目"、"项目列表"时调用。"""
         try:
             cache_key = "projects"
             cached = self._cache_get(cache_key)
-            projects = cached if cached is not None else \
-                await asyncio.to_thread(lambda: list(self.wt.list_projects()))
+            projects = (
+                cached
+                if cached is not None
+                else await asyncio.to_thread(lambda: list(self.wt.list_projects()))
+            )
             if cached is None:
                 self._cache_set(cache_key, projects)
 
@@ -122,24 +125,33 @@ class WTBot(Star):
 
             lines = []
             for p in projects:
-                lines.append(f"  {self._safe(p, 'name')} (slug: {self._safe(p, 'slug')})")
+                lines.append(
+                    f"  {self._safe(p, 'name')} (slug: {self._safe(p, 'slug')})"
+                )
             return f"共 {len(projects)} 个项目：\n" + "\n".join(lines)
         except Exception as e:
             return self._handle_err("list_projects", e)
 
     @filter.llm_tool(name="weblate_list_components")
-    async def list_components(self, event: AstrMessageEvent, project_slug: str = "") -> str:
-        '''列出翻译项目下的所有组件。
+    async def list_components(
+        self, event: AstrMessageEvent, project_slug: str = ""
+    ) -> str:
+        """列出翻译项目下的所有组件。
 
         Args:
             project_slug(string): 项目 slug（非名称）。若用户用名称，先调 weblate_list_projects 获取列表从中匹配。可选，默认使用配置的默认项目
-        '''
+        """
         project_slug = self._resolve_project(project_slug)
         try:
             cache_key = f"components_{project_slug}"
             cached = self._cache_get(cache_key)
-            comps = cached if cached is not None else \
-                await asyncio.to_thread(lambda: list(self.wt.list_project_components(project_slug)))
+            comps = (
+                cached
+                if cached is not None
+                else await asyncio.to_thread(
+                    lambda: list(self.wt.list_project_components(project_slug))
+                )
+            )
             if cached is None:
                 self._cache_set(cache_key, comps)
 
@@ -148,9 +160,15 @@ class WTBot(Star):
 
             lines = []
             for c in comps:
-                lines.append(f"  {self._safe(c, 'name')} (slug: {self._safe(c, 'slug')})")
-                lines.append(f"    repo: {self._safe(c, 'repo')}  branch: {self._safe(c, 'branch')}")
-                lines.append(f"    filemask: {self._safe(c, 'filemask')}  format: {self._safe(c, 'file_format')}")
+                lines.append(
+                    f"  {self._safe(c, 'name')} (slug: {self._safe(c, 'slug')})"
+                )
+                lines.append(
+                    f"    repo: {self._safe(c, 'repo')}  branch: {self._safe(c, 'branch')}"
+                )
+                lines.append(
+                    f"    filemask: {self._safe(c, 'filemask')}  format: {self._safe(c, 'file_format')}"
+                )
             return f"项目 {project_slug} 共 {len(comps)} 个组件：\n" + "\n".join(lines)
         except Exception as e:
             return self._handle_err("list_components", e)
@@ -159,19 +177,27 @@ class WTBot(Star):
     async def translation_status(
         self, event: AstrMessageEvent, project_slug: str = "", component_slug: str = ""
     ) -> str:
-        '''查看翻译进度统计。用户说"翻译进度"、"还有多少没翻"时调用。
+        """查看翻译进度统计。用户说"翻译进度"、"还有多少没翻"时调用。
 
         Args:
             project_slug(string): 项目 slug（非名称）。若用户用名称，先调 weblate_list_projects 获取列表从中匹配。可选，默认使用配置的默认项目
             component_slug(string): 组件 slug（非名称）。若用户用名称，先调 weblate_list_components 获取列表从中匹配
-        '''
+        """
         project_slug = self._resolve_project(project_slug)
         try:
             cache_key = f"translations_{project_slug}_{component_slug}"
             cached = self._cache_get(cache_key)
-            translations = cached if cached is not None else \
-                await asyncio.to_thread(
-                    lambda: list(self.wt.list_component_translations(project_slug, component_slug)))
+            translations = (
+                cached
+                if cached is not None
+                else await asyncio.to_thread(
+                    lambda: list(
+                        self.wt.list_component_translations(
+                            project_slug, component_slug
+                        )
+                    )
+                )
+            )
             if cached is None:
                 self._cache_set(cache_key, translations)
 
@@ -189,12 +215,17 @@ class WTBot(Star):
                 failing = self._safe(t, "failing_checks", default="0")
                 bar = self._pct_bar(pct)
                 # emoji 颜色
-                if pct >= 80: icon = "🟢"
-                elif pct >= 50: icon = "🟡"
-                else: icon = "🔴"
+                if pct >= 80:
+                    icon = "🟢"
+                elif pct >= 50:
+                    icon = "🟡"
+                else:
+                    icon = "🔴"
                 extra = ""
-                if int(fuzzy) > 0: extra += f" 📝{fuzzy}"
-                if int(failing) > 0: extra += f" ❌{failing}"
+                if int(fuzzy) > 0:
+                    extra += f" 📝{fuzzy}"
+                if int(failing) > 0:
+                    extra += f" ❌{failing}"
                 lines.append(
                     f"  {icon} {lang_name} ({lang_code}) {bar} {pct}% ({trans}/{total}){extra}"
                 )
@@ -204,38 +235,57 @@ class WTBot(Star):
 
     @filter.llm_tool(name="weblate_translation_changes")
     async def translation_changes(
-        self, event: AstrMessageEvent,
-        project_slug: str = "", component_slug: str = "",
-        lang: str = "", hours: int = 24,
+        self,
+        event: AstrMessageEvent,
+        project_slug: str = "",
+        component_slug: str = "",
+        lang: str = "",
+        hours: int = 24,
     ) -> str:
-        '''查看翻译变更历史。用户询问"最近有谁改了翻译"时调用。
+        """查看翻译变更历史。用户询问"最近有谁改了翻译"时调用。
 
         Args:
             project_slug(string): 项目 slug（非名称）。若用户用名称，先调 weblate_list_projects 获取列表从中匹配。可选，默认使用配置的默认项目
             component_slug(string): 组件 slug（非名称）。若用户用名称，先调 weblate_list_components 获取列表从中匹配
             lang(string): 语言代码，可选，如 zh_Hans。不填则显示所有语言
             hours(number): 最近多少小时，默认 24
-        '''
+        """
         project_slug = self._resolve_project(project_slug)
         try:
             since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
             params = {"timestamp_after": since}
             if lang:
                 changes = await asyncio.to_thread(
-                    lambda: list(self.wt.list_translation_changes(project_slug, component_slug, lang, **params)))
+                    lambda: list(
+                        self.wt.list_translation_changes(
+                            project_slug, component_slug, lang, **params
+                        )
+                    )
+                )
             else:
                 changes = await asyncio.to_thread(
-                    lambda: list(self.wt.list_component_changes(project_slug, component_slug, **params)))
+                    lambda: list(
+                        self.wt.list_component_changes(
+                            project_slug, component_slug, **params
+                        )
+                    )
+                )
 
             if not changes:
                 return f"{project_slug}/{component_slug} 最近 {hours} 小时内没有变更。"
 
             limit = min(len(changes), 20)
-            lines = [f"{project_slug}/{component_slug} 最近 {hours}h 变更 ({limit}/{len(changes)})："]
+            lines = [
+                f"{project_slug}/{component_slug} 最近 {hours}h 变更 ({limit}/{len(changes)})："
+            ]
             for ch in changes[:20]:
                 ts = (self._safe(ch, "timestamp"))[:19]
                 raw = ch.get("user", "")
-                user = raw.split("/")[-2] if raw and "/" in str(raw) else self._safe(ch, "author", default="系统")
+                user = (
+                    raw.split("/")[-2]
+                    if raw and "/" in str(raw)
+                    else self._safe(ch, "author", default="系统")
+                )
                 action = self._safe(ch, "action_name")
                 old = f" ← {str(ch.get('old', ''))[:40]}" if ch.get("old") else ""
                 tgt = f" → {str(ch.get('target', ''))[:40]}" if ch.get("target") else ""
@@ -246,20 +296,23 @@ class WTBot(Star):
 
     @filter.llm_tool(name="weblate_repository_status")
     async def repository_status(
-        self, event: AstrMessageEvent,
-        project_slug: str = "", component_slug: str = "",
+        self,
+        event: AstrMessageEvent,
+        project_slug: str = "",
+        component_slug: str = "",
     ) -> str:
-        '''查看 VCS 仓库状态。用户问"仓库状态"、"有没有待推送"时调用。
+        """查看 VCS 仓库状态。用户问"仓库状态"、"有没有待推送"时调用。
 
         Args:
             project_slug(string): 项目 slug（非名称）。若用户用名称，先调 weblate_list_projects 获取列表从中匹配。可选，默认使用配置的默认项目
             component_slug(string): 组件 slug（非名称）。若用户用名称，先调 weblate_list_components 获取列表从中匹配，可选。不填则显示所有组件
-        '''
+        """
         project_slug = self._resolve_project(project_slug)
         try:
             if component_slug:
                 repo = await asyncio.to_thread(
-                    self.wt.get_component_repository, project_slug, component_slug)
+                    self.wt.get_component_repository, project_slug, component_slug
+                )
                 return (
                     f"{project_slug}/{component_slug} 仓库状态：\n"
                     f"  needs_commit: {repo.get('needs_commit', '-')}\n"
@@ -269,20 +322,25 @@ class WTBot(Star):
                 )
 
             comps = await asyncio.to_thread(
-                lambda: list(self.wt.list_project_components(project_slug)))
+                lambda: list(self.wt.list_project_components(project_slug))
+            )
             lines = [f"{project_slug} 仓库状态："]
             for c in comps:
                 slug = self._safe(c, "slug")
                 try:
                     repo = await asyncio.to_thread(
-                        self.wt.get_component_repository, project_slug, slug)
+                        self.wt.get_component_repository, project_slug, slug
+                    )
                 except WeblateError:
                     lines.append(f"  {slug}: 无法获取")
                     continue
                 flags = []
-                if repo.get("needs_commit"): flags.append("C")
-                if repo.get("needs_merge"):  flags.append("M")
-                if repo.get("needs_push"):   flags.append("P")
+                if repo.get("needs_commit"):
+                    flags.append("C")
+                if repo.get("needs_merge"):
+                    flags.append("M")
+                if repo.get("needs_push"):
+                    flags.append("P")
                 lines.append(f"  {slug}: {','.join(flags) if flags else 'ok'}")
             return "\n".join(lines)
         except Exception as e:
@@ -292,16 +350,17 @@ class WTBot(Star):
     async def repository_pull(
         self, event: AstrMessageEvent, project_slug: str = "", component_slug: str = ""
     ) -> str:
-        '''从远程仓库拉取最新翻译文件。执行前建议让用户确认。
+        """从远程仓库拉取最新翻译文件。执行前建议让用户确认。
 
         Args:
             project_slug(string): 项目 slug（非名称）。若用户用名称，先调 weblate_list_projects 获取列表从中匹配。可选，默认使用配置的默认项目
             component_slug(string): 组件 slug（非名称）。若用户用名称，先调 weblate_list_components 获取列表从中匹配
-        '''
+        """
         project_slug = self._resolve_project(project_slug)
         try:
             result = await asyncio.to_thread(
-                self.wt.repo_component, project_slug, component_slug, "pull")
+                self.wt.repo_component, project_slug, component_slug, "pull"
+            )
             self._cache_clear_prefix("")
             return f"已拉取 {project_slug}/{component_slug} 仓库。result: {result.get('result', '-')}"
         except Exception as e:
@@ -311,16 +370,17 @@ class WTBot(Star):
     async def repository_push(
         self, event: AstrMessageEvent, project_slug: str = "", component_slug: str = ""
     ) -> str:
-        '''推送 Weblate 翻译变更到远程仓库。执行前建议让用户确认。
+        """推送 Weblate 翻译变更到远程仓库。执行前建议让用户确认。
 
         Args:
             project_slug(string): 项目 slug（非名称）。若用户用名称，先调 weblate_list_projects 获取列表从中匹配。可选，默认使用配置的默认项目
             component_slug(string): 组件 slug（非名称）。若用户用名称，先调 weblate_list_components 获取列表从中匹配
-        '''
+        """
         project_slug = self._resolve_project(project_slug)
         try:
             result = await asyncio.to_thread(
-                self.wt.repo_component, project_slug, component_slug, "push")
+                self.wt.repo_component, project_slug, component_slug, "push"
+            )
             self._cache_clear_prefix("")
             return f"已推送 {project_slug}/{component_slug}。result: {result.get('result', '-')}"
         except Exception as e:
@@ -328,27 +388,38 @@ class WTBot(Star):
 
     @filter.llm_tool(name="weblate_search_unit")
     async def search_unit(
-        self, event: AstrMessageEvent,
-        project_slug: str = "", component_slug: str = "", lang: str = "", query: str = "",
+        self,
+        event: AstrMessageEvent,
+        project_slug: str = "",
+        component_slug: str = "",
+        lang: str = "",
+        query: str = "",
     ) -> str:
-        '''在翻译单元中搜索关键词。用户问"xxx 怎么翻译的"时调用。
+        """在翻译单元中搜索关键词。用户问"xxx 怎么翻译的"时调用。
 
         Args:
             project_slug(string): 项目 slug（非名称）。若用户用名称，先调 weblate_list_projects 获取列表从中匹配。可选，默认使用配置的默认项目
             component_slug(string): 组件 slug（非名称）。若用户用名称，先调 weblate_list_components 获取列表从中匹配
             lang(string): 语言代码，如 zh_Hans
             query(string): 搜索关键词
-        '''
+        """
         project_slug = self._resolve_project(project_slug)
         try:
             units = await asyncio.to_thread(
-                lambda: list(self.wt.list_translation_units(project_slug, component_slug, lang, q=query)))
+                lambda: list(
+                    self.wt.list_translation_units(
+                        project_slug, component_slug, lang, q=query
+                    )
+                )
+            )
 
             if not units:
                 return f"在 {project_slug}/{component_slug}/{lang} 中未找到 '{query}' 的翻译。"
 
             limit = min(len(units), 15)
-            lines = [f"搜索 '{query}' in {project_slug}/{component_slug}/{lang} ({limit}/{len(units)})："]
+            lines = [
+                f"搜索 '{query}' in {project_slug}/{component_slug}/{lang} ({limit}/{len(units)})："
+            ]
             for u in units[:15]:
                 src = u.get("source", "")
                 if isinstance(src, list):
@@ -368,15 +439,16 @@ class WTBot(Star):
     async def translate_unit(
         self, event: AstrMessageEvent, unit_id: int, target: str
     ) -> str:
-        '''修改单个翻译单元。执行前建议让用户确认内容。
+        """修改单个翻译单元。执行前建议让用户确认内容。
 
         Args:
             unit_id(number): 翻译单元 ID
             target(string): 目标语言翻译文本
-        '''
+        """
         try:
             result = await asyncio.to_thread(
-                self.wt.update_unit, unit_id, target=[target], state=20)
+                self.wt.update_unit, unit_id, target=[target], state=20
+            )
             src = ""
             if isinstance(result.get("source"), list):
                 src = " | ".join(result["source"])
@@ -386,11 +458,11 @@ class WTBot(Star):
 
     @filter.llm_tool(name="weblate_language_stats")
     async def language_stats(self, event: AstrMessageEvent, lang_code: str) -> str:
-        '''查看某个语言在所有项目中的翻译统计。
+        """查看某个语言在所有项目中的翻译统计。
 
         Args:
             lang_code(string): 语言代码，如 zh_Hans, en, ja
-        '''
+        """
         try:
             stats = await asyncio.to_thread(self.wt.get_language_statistics, lang_code)
             return (
@@ -406,12 +478,15 @@ class WTBot(Star):
 
     @filter.llm_tool(name="weblate_list_languages")
     async def list_languages(self, event: AstrMessageEvent) -> str:
-        '''列出 Weblate 支持的所有语言代码。当需要知道合法语言代码时调用。'''
+        """列出 Weblate 支持的所有语言代码。当需要知道合法语言代码时调用。"""
         try:
             langs = await asyncio.to_thread(lambda: list(self.wt.list_languages()))
             if not langs:
                 return "未找到任何语言。"
-            lines = [f"  {l.get('code', '?')} — {l.get('name', '?')} ({l.get('direction', '?')})" for l in langs]
+            lines = [
+                f"  {lang.get('code', '?')} — {lang.get('name', '?')} ({lang.get('direction', '?')})"
+                for lang in langs
+            ]
             return f"共 {len(langs)} 种语言：\n" + "\n".join(lines)
         except Exception as e:
             return self._handle_err("list_languages", e)
@@ -420,16 +495,17 @@ class WTBot(Star):
     async def repository_commit(
         self, event: AstrMessageEvent, project_slug: str = "", component_slug: str = ""
     ) -> str:
-        '''提交 Weblate 仓库的待处理变更。pull → commit → push 流程的一环。
+        """提交 Weblate 仓库的待处理变更。pull → commit → push 流程的一环。
 
         Args:
             project_slug(string): 项目 slug（非名称）。若用户用名称，先调 weblate_list_projects 获取列表从中匹配。可选，默认使用配置的默认项目
             component_slug(string): 组件 slug（非名称）。若用户用名称，先调 weblate_list_components 获取列表从中匹配
-        '''
+        """
         project_slug = self._resolve_project(project_slug)
         try:
             result = await asyncio.to_thread(
-                self.wt.repo_component, project_slug, component_slug, "commit")
+                self.wt.repo_component, project_slug, component_slug, "commit"
+            )
             self._cache_clear_prefix("")
             return f"已提交 {project_slug}/{component_slug} 仓库。result: {result.get('result', '-')}"
         except Exception as e:
@@ -437,11 +513,15 @@ class WTBot(Star):
 
     @filter.llm_tool(name="weblate_autotranslate")
     async def autotranslate(
-        self, event: AstrMessageEvent,
-        project_slug: str = "", component_slug: str = "", lang: str = "",
-        mode: str = "translate", filter_type: str = "all",
+        self,
+        event: AstrMessageEvent,
+        project_slug: str = "",
+        component_slug: str = "",
+        lang: str = "",
+        mode: str = "translate",
+        filter_type: str = "all",
     ) -> str:
-        '''触发 Weblate 批量自动翻译。建议执行前先确认。
+        """触发 Weblate 批量自动翻译。建议执行前先确认。
 
         Args:
             project_slug(string): 项目 slug（非名称）
@@ -449,28 +529,36 @@ class WTBot(Star):
             lang(string): 目标语言代码
             mode(string): 模式 — translate(直接翻译), suggest(仅建议), fuzzy(标记需编辑)。默认 translate
             filter_type(string): 筛选范围 — all(全部), nontranslated(未翻译), todo(待办), fuzzy(需编辑), check(检查失败)。默认 all
-        '''
+        """
         project_slug = self._resolve_project(project_slug)
         try:
             result = await asyncio.to_thread(
-                self.wt.autotranslate, project_slug, component_slug, lang,
-                mode=mode, filter_type=filter_type)
+                self.wt.autotranslate,
+                project_slug,
+                component_slug,
+                lang,
+                mode=mode,
+                filter_type=filter_type,
+            )
             return f"自动翻译已触发：{project_slug}/{component_slug}/{lang} mode={mode} filter={filter_type}\n结果: {result}"
         except Exception as e:
             return self._handle_err("autotranslate", e)
 
     @filter.llm_tool(name="weblate_list_changes")
     async def list_changes(
-        self, event: AstrMessageEvent,
-        user: str = "", action: str = "", hours: int = 24,
+        self,
+        event: AstrMessageEvent,
+        user: str = "",
+        action: str = "",
+        hours: int = 24,
     ) -> str:
-        '''查看全局翻译变更历史（不限项目/组件）。
+        """查看全局翻译变更历史（不限项目/组件）。
 
         Args:
             user(string): 按用户名筛选，可选
             action(string): 按操作类型筛选，可选
             hours(number): 最近多少小时，默认 24
-        '''
+        """
         try:
             params: dict[str, str] = {}
             if user:
@@ -480,7 +568,8 @@ class WTBot(Star):
             since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
             params["timestamp_after"] = since
             changes = await asyncio.to_thread(
-                lambda: list(self.wt.list_changes(**params)))
+                lambda: list(self.wt.list_changes(**params))
+            )
             if not changes:
                 return f"最近 {hours} 小时内没有变更。"
             limit = min(len(changes), 20)
@@ -488,7 +577,11 @@ class WTBot(Star):
             for ch in changes[:20]:
                 ts = (self._safe(ch, "timestamp"))[:19]
                 raw = ch.get("user", "")
-                u = raw.split("/")[-2] if raw and "/" in str(raw) else self._safe(ch, "author", default="系统")
+                u = (
+                    raw.split("/")[-2]
+                    if raw and "/" in str(raw)
+                    else self._safe(ch, "author", default="系统")
+                )
                 act = self._safe(ch, "action_name")
                 tgt = f" → {str(ch.get('target', ''))[:40]}" if ch.get("target") else ""
                 lines.append(f"  {ts} {u}: {act}{tgt}")
@@ -498,26 +591,31 @@ class WTBot(Star):
 
     @filter.llm_tool(name="weblate_component_lock")
     async def component_lock(
-        self, event: AstrMessageEvent,
-        project_slug: str = "", component_slug: str = "", locked: str = "",
+        self,
+        event: AstrMessageEvent,
+        project_slug: str = "",
+        component_slug: str = "",
+        locked: str = "",
     ) -> str:
-        '''查看或设置组件锁定状态。锁定后禁止翻译修改。
+        """查看或设置组件锁定状态。锁定后禁止翻译修改。
 
         Args:
             project_slug(string): 项目 slug（非名称）
             component_slug(string): 组件 slug（非名称）
             locked(string): 可选。传 "true" 锁定，"false" 解锁，不传查看当前状态
-        '''
+        """
         project_slug = self._resolve_project(project_slug)
         try:
             if locked.lower() in ("true", "false", "1", "0"):
                 lock_bool = locked.lower() in ("true", "1")
                 result = await asyncio.to_thread(
-                    self.wt.set_component_lock, project_slug, component_slug, lock_bool)
+                    self.wt.set_component_lock, project_slug, component_slug, lock_bool
+                )
                 state = "已锁定" if result.get("locked") else "已解锁"
                 return f"{project_slug}/{component_slug} {state}"
             result = await asyncio.to_thread(
-                self.wt.get_component_lock, project_slug, component_slug)
+                self.wt.get_component_lock, project_slug, component_slug
+            )
             state = "已锁定" if result.get("locked") else "未锁定"
             return f"{project_slug}/{component_slug} {state}"
         except Exception as e:
@@ -525,20 +623,24 @@ class WTBot(Star):
 
     @filter.llm_tool(name="weblate_translation_stats")
     async def translation_stats(
-        self, event: AstrMessageEvent,
-        project_slug: str = "", component_slug: str = "", lang: str = "",
+        self,
+        event: AstrMessageEvent,
+        project_slug: str = "",
+        component_slug: str = "",
+        lang: str = "",
     ) -> str:
-        '''获取单个翻译语言的精确统计数据。
+        """获取单个翻译语言的精确统计数据。
 
         Args:
             project_slug(string): 项目 slug（非名称）
             component_slug(string): 组件 slug（非名称）
             lang(string): 语言代码，如 zh_Hans
-        '''
+        """
         project_slug = self._resolve_project(project_slug)
         try:
             stats = await asyncio.to_thread(
-                self.wt.get_translation_statistics, project_slug, component_slug, lang)
+                self.wt.get_translation_statistics, project_slug, component_slug, lang
+            )
             return (
                 f"{project_slug}/{component_slug}/{lang} 统计：\n"
                 f"  总条目:   {stats.get('total', 0)}\n"
@@ -554,14 +656,17 @@ class WTBot(Star):
 
     @filter.llm_tool(name="weblate_create_unit_comment")
     async def create_unit_comment(
-        self, event: AstrMessageEvent, unit_id: int, comment: str,
+        self,
+        event: AstrMessageEvent,
+        unit_id: int,
+        comment: str,
     ) -> str:
-        '''给翻译单元添加评论。
+        """给翻译单元添加评论。
 
         Args:
             unit_id(number): 翻译单元 ID
             comment(string): 评论内容
-        '''
+        """
         try:
             await asyncio.to_thread(self.wt.create_unit_comment, unit_id, comment)
             return f"已为 unit #{unit_id} 添加评论。"
@@ -570,22 +675,26 @@ class WTBot(Star):
 
     @filter.llm_tool(name="weblate_download_file")
     async def download_file(
-        self, event: AstrMessageEvent,
-        project_slug: str = "", component_slug: str = "", lang: str = "",
+        self,
+        event: AstrMessageEvent,
+        project_slug: str = "",
+        component_slug: str = "",
+        lang: str = "",
         format: str = "po",
     ) -> MessageEventResult:
-        '''下载翻译文件并直接发送给用户。
+        """下载翻译文件并直接发送给用户。
 
         Args:
             project_slug(string): 项目 slug（非名称）
             component_slug(string): 组件 slug（非名称）
             lang(string): 语言代码
             format(string): 文件格式，默认 po，可选 json/csv/xliff 等
-        '''
+        """
         project_slug = self._resolve_project(project_slug)
         try:
             content = await asyncio.to_thread(
-                self.wt.download_file, project_slug, component_slug, lang, format=format)
+                self.wt.download_file, project_slug, component_slug, lang, format=format
+            )
             dl_dir = Path("data/plugin_data/wtbot/downloads")
             dl_dir.mkdir(parents=True, exist_ok=True)
             filename = f"{project_slug}_{component_slug}_{lang}.{format}"
@@ -593,19 +702,25 @@ class WTBot(Star):
             filepath.write_bytes(content)
             size_kb = len(content) / 1024
             yield event.plain_result(
-                f"已下载 {project_slug}/{component_slug}/{lang}.{format} ({size_kb:.1f} KB)")
+                f"已下载 {project_slug}/{component_slug}/{lang}.{format} ({size_kb:.1f} KB)"
+            )
             import astrbot.api.message_components as Comp
+
             yield event.chain_result([Comp.File(file=str(filepath), name=filename)])
         except Exception as e:
             yield event.plain_result(f"下载失败: {e}")
 
     @filter.llm_tool(name="weblate_upload_file")
     async def upload_file(
-        self, event: AstrMessageEvent,
-        project_slug: str = "", component_slug: str = "", lang: str = "",
-        filepath: str = "", method: str = "translate",
+        self,
+        event: AstrMessageEvent,
+        project_slug: str = "",
+        component_slug: str = "",
+        lang: str = "",
+        filepath: str = "",
+        method: str = "translate",
     ) -> MessageEventResult:
-        '''上传本地翻译文件到 Weblate。用户需提供服务器上的文件路径。
+        """上传本地翻译文件到 Weblate。用户需提供服务器上的文件路径。
 
         Args:
             project_slug(string): 项目 slug（非名称）
@@ -613,7 +728,7 @@ class WTBot(Star):
             lang(string): 语言代码
             filepath(string): 服务器上的文件路径
             method(string): 导入方式 — translate(翻译), add(添加源), suggest(建议), fuzzy(标记需编辑), replace(替换)
-        '''
+        """
         project_slug = self._resolve_project(project_slug)
         if not filepath:
             yield event.plain_result("请提供服务器上的文件路径。")
@@ -623,8 +738,13 @@ class WTBot(Star):
             return
         try:
             result = await asyncio.to_thread(
-                self.wt.upload_file, project_slug, component_slug, lang,
-                filepath, method=method)
+                self.wt.upload_file,
+                project_slug,
+                component_slug,
+                lang,
+                filepath,
+                method=method,
+            )
             self._cache_clear_prefix("")
             yield event.plain_result(
                 f"已上传到 {project_slug}/{component_slug}/{lang}\n"
@@ -644,10 +764,10 @@ class WTBot(Star):
         "1. 模板名称：简洁中文名称\n"
         "2. 模板内容：自然语言规则描述，包含何时使用、key/source 格式规则、已知名称映射\n"
         "3. 模板所需参数：列出执行此模板时 LLM 需要向用户收集的信息。\n"
-        "   必须包含\"目标项目\"和\"目标组件\"参数（Weblate 项目/组件 slug）。\n"
-        "   每个参数注明名称、说明、是否必填。若参数可 LLM 自行推断则标注\"可推断\"\n\n"
+        '   必须包含"目标项目"和"目标组件"参数（Weblate 项目/组件 slug）。\n'
+        '   每个参数注明名称、说明、是否必填。若参数可 LLM 自行推断则标注"可推断"\n\n'
         "重要规则：\n"
-        "- 若参数值需写入 key 且属于项目专有名词，必须在参数说明中强调\"需用户提供英文翻译，禁止 AI 自行翻译\"\n"
+        '- 若参数值需写入 key 且属于项目专有名词，必须在参数说明中强调"需用户提供英文翻译，禁止 AI 自行翻译"\n'
         "- 只写规则，不写示例代码或 JSON\n"
         "- 用中文"
     )
@@ -685,7 +805,9 @@ class WTBot(Star):
                 return override_data
             # 文件有内容、与 config 不同 → 文件更新了（LLM 改的），同步到 config
             if file_data:
-                self.config["templates_override"] = json.dumps(file_data, ensure_ascii=False, indent=2)
+                self.config["templates_override"] = json.dumps(
+                    file_data, ensure_ascii=False, indent=2
+                )
                 try:
                     self.config.save_config()
                 except Exception:
@@ -709,7 +831,8 @@ class WTBot(Star):
         provider_id = (self.config.get("template_ai_provider") or "").strip()
         if not provider_id:
             provider_id = await self.context.get_current_chat_provider_id(
-                event.unified_msg_origin)
+                event.unified_msg_origin
+            )
         isolated_prompt = (
             f"[ROLE]\n{self._TEMPLATE_SYSTEM_PROMPT}\n[/ROLE]\n\n"
             f"[TASK]\n{prompt}\n[/TASK]"
@@ -724,7 +847,7 @@ class WTBot(Star):
 
     @filter.llm_tool(name="weblate_list_templates")
     async def list_templates(self, event: AstrMessageEvent) -> str:
-        '''列出所有本地存储的字符串模板（非 Weblate，仅供 AstrBot AI 参考）。'''
+        """列出所有本地存储的字符串模板（非 Weblate，仅供 AstrBot AI 参考）。"""
         if not self._tpl_enabled():
             return "模板功能未启用，请在插件配置中开启 enable_templates。"
         try:
@@ -733,11 +856,11 @@ class WTBot(Star):
                 return "当前没有任何字符串模板。可以通过对话创建。"
             lines = ["可用模板（含所需参数）："]
             for slug, tpl in templates.items():
-                name = tpl.get('name', slug)
-                desc = tpl.get('description', '')[:60]
-                tpl_params = tpl.get('params', [])
+                name = tpl.get("name", slug)
+                desc = tpl.get("description", "")[:60]
+                tpl_params = tpl.get("params", [])
                 if tpl_params:
-                    p_names = [p.get('name', '?') for p in tpl_params]
+                    p_names = [p.get("name", "?") for p in tpl_params]
                     desc += f" | 需要: {', '.join(p_names)}"
                 lines.append(f"  {name} (slug: {slug}) — {desc}")
             return "\n".join(lines)
@@ -746,11 +869,11 @@ class WTBot(Star):
 
     @filter.llm_tool(name="weblate_show_template")
     async def show_template(self, event: AstrMessageEvent, template_name: str) -> str:
-        '''查看某个本地模板的完整描述（非 Weblate，仅供 AI 参考）。
+        """查看某个本地模板的完整描述（非 Weblate，仅供 AI 参考）。
 
         Args:
             template_name(string): 模板 slug（非名称）。若不知道 slug，先调 weblate_list_templates 获取列表从中匹配
-        '''
+        """
         if not self._tpl_enabled():
             return "模板功能未启用。"
         try:
@@ -758,12 +881,14 @@ class WTBot(Star):
             tpl = templates.get(template_name)
             if not tpl:
                 return f"模板 {template_name} 不存在。可用模板: {', '.join(templates.keys())}"
-            tpl_params = tpl.get('params', [])
+            tpl_params = tpl.get("params", [])
             params_text = ""
             if tpl_params:
                 for p in tpl_params:
-                    req = "必填" if p.get('required', True) else "可选"
-                    params_text += f"  - {p.get('name', '?')} ({req}): {p.get('desc', '')}\n"
+                    req = "必填" if p.get("required", True) else "可选"
+                    params_text += (
+                        f"  - {p.get('name', '?')} ({req}): {p.get('desc', '')}\n"
+                    )
             return (
                 f"模板 **{tpl.get('name', template_name)}** ({template_name})：\n\n"
                 f"**模板内容：**\n{tpl.get('description', '')}\n\n"
@@ -774,11 +899,15 @@ class WTBot(Star):
 
     @filter.llm_tool(name="weblate_create_unit")
     async def create_unit(
-        self, event: AstrMessageEvent,
-        project_slug: str = "", component: str = "", lang: str = "",
-        key: str = "", value: str = "",
+        self,
+        event: AstrMessageEvent,
+        project_slug: str = "",
+        component: str = "",
+        lang: str = "",
+        key: str = "",
+        value: str = "",
     ) -> str:
-        '''创建单个翻译单元。LLM 根据模板描述推断参数后调用。
+        """创建单个翻译单元。LLM 根据模板描述推断参数后调用。
 
         Args:
             project_slug(string): 项目 slug（非名称）。可选，默认使用配置的默认项目
@@ -786,17 +915,23 @@ class WTBot(Star):
             lang(string): 语言代码，如 en
             key(string): 翻译 key
             value(string): source 源字符串
-        '''
+        """
         project_slug = self._resolve_project(project_slug)
         if not component or not key or not value:
-            return "缺少必要参数: component, key, value" + f" (got component={component}, key={key}, value={value})"
+            return (
+                "缺少必要参数: component, key, value"
+                + f" (got component={component}, key={key}, value={value})"
+            )
         default_lang = (self.config.get("default_lang") or "en").strip()
         lang = lang or default_lang
         try:
             result = await asyncio.to_thread(
                 self.wt.create_unit,
-                project_slug, component, lang,
-                key=key, value=[value],
+                project_slug,
+                component,
+                lang,
+                key=key,
+                value=[value],
             )
             uid = result.get("id", "?")
             return f"已创建 unit #{uid}: key={key}, value={value}, lang={lang}, project={project_slug}, component={component}"
@@ -806,18 +941,24 @@ class WTBot(Star):
     # ---- yield plain_result 的 Tool（直接输出用户） ----
 
     @filter.llm_tool(name="weblate_create_template")
-    async def create_template(self, event: AstrMessageEvent, requirement: str) -> MessageEventResult:
-        '''AI 辅助创建字符串模板。模板存储在本地插件数据目录，供 AstrBot 的 AI 调用参考，与 Weblate 无关。
+    async def create_template(
+        self, event: AstrMessageEvent, requirement: str
+    ) -> MessageEventResult:
+        """AI 辅助创建字符串模板。模板存储在本地插件数据目录，供 AstrBot 的 AI 调用参考，与 Weblate 无关。
         用户说"创建一个模板"时调用。结果直接展示给用户。
 
         Args:
             requirement(string): 用户对模板的需求描述。如果用户只说想创建模板但没说内容，传空字符串并让用户补充。
-        '''
+        """
         if not self._tpl_enabled():
-            yield event.plain_result("模板功能未启用，请在插件配置中开启 enable_templates。")
+            yield event.plain_result(
+                "模板功能未启用，请在插件配置中开启 enable_templates。"
+            )
             return
         if not requirement.strip():
-            yield event.plain_result("请描述你的模板需求，例如：\"角色出新皮肤时在 Direct Resources 组件创建 Info/角色英文-皮肤英文 格式的字符串\"")
+            yield event.plain_result(
+                '请描述你的模板需求，例如："角色出新皮肤时在 Direct Resources 组件创建 Info/角色英文-皮肤英文 格式的字符串"'
+            )
             return
         try:
             templates = self._load_templates()
@@ -836,27 +977,29 @@ class WTBot(Star):
             # Parse AI output
             slug = ""
             name = ""
-            component = ""
             desc_lines: list[str] = []
             params_lines: list[str] = []
             section = ""
             for line in result.split("\n"):
-                l = line.strip()
-                upper = l.upper()
+                line_s = line.strip()
+                upper = line_s.upper()
                 if upper.startswith("SLUG:"):
-                    slug = l.split(":", 1)[1].strip(); section = ""
+                    slug = line_s.split(":", 1)[1].strip()
+                    section = ""
                 elif upper.startswith("NAME:"):
-                    name = l.split(":", 1)[1].strip(); section = ""
+                    name = line_s.split(":", 1)[1].strip()
+                    section = ""
                 elif upper.startswith("COMPONENT:"):
-                    component = l.split(":", 1)[1].strip(); section = ""
+                    _component = line_s.split(":", 1)[1].strip()
+                    section = ""
                 elif upper == "DESCRIPTION:":
                     section = "desc"
                 elif upper == "PARAMS:":
                     section = "params"
                 elif section == "desc":
-                    desc_lines.append(l)
+                    desc_lines.append(line_s)
                 elif section == "params":
-                    params_lines.append(l)
+                    params_lines.append(line_s)
 
             # Parse params JSON
             params: list[dict] = []
@@ -879,7 +1022,10 @@ class WTBot(Star):
                 desc_lines = [result]
 
             # 确保项目、组件在 params 中
-            for pname, pdesc in [("目标项目", "We​blate 项目 slug"), ("目标组件", "We​blate 组件 slug")]:
+            for pname, pdesc in [
+                ("目标项目", "We​blate 项目 slug"),
+                ("目标组件", "We​blate 组件 slug"),
+            ]:
                 if not any(p.get("name", "") == pname for p in params):
                     params.append({"name": pname, "desc": pdesc, "required": True})
             templates[slug] = {
@@ -892,7 +1038,9 @@ class WTBot(Star):
             if params:
                 for p in params:
                     req = "必填" if p.get("required", True) else "可选"
-                    params_summary += f"  - {p.get('name', '?')} ({req}): {p.get('desc', '')}\n"
+                    params_summary += (
+                        f"  - {p.get('name', '?')} ({req}): {p.get('desc', '')}\n"
+                    )
             yield event.plain_result(
                 f"模板已创建：**{name}** (slug: {slug})\n\n"
                 f"**模板内容：**\n{templates[slug]['description']}\n\n"
@@ -906,12 +1054,12 @@ class WTBot(Star):
     async def update_template(
         self, event: AstrMessageEvent, template_name: str, requirement: str
     ) -> MessageEventResult:
-        '''更新本地模板的描述（非 Weblate 操作）。AI 根据 requirement 重写模板。
+        """更新本地模板的描述（非 Weblate 操作）。AI 根据 requirement 重写模板。
 
         Args:
             template_name(string): 模板 slug（非名称）。若不知道 slug，先调 weblate_list_templates 获取列表从中匹配
             requirement(string): 需要修改的内容描述
-        '''
+        """
         if not self._tpl_enabled():
             yield event.plain_result("模板功能未启用。")
             return
@@ -919,7 +1067,9 @@ class WTBot(Star):
             templates = self._load_templates()
             tpl = templates.get(template_name)
             if not tpl:
-                yield event.plain_result(f"模板 {template_name} 不存在。可用: {', '.join(templates.keys())}")
+                yield event.plain_result(
+                    f"模板 {template_name} 不存在。可用: {', '.join(templates.keys())}"
+                )
                 return
             current = json.dumps(tpl, ensure_ascii=False, indent=2)
             full_prompt = (
@@ -928,18 +1078,20 @@ class WTBot(Star):
                 "请根据修改需求更新模板。按以下格式输出：\n"
                 "NAME: 模板名\n"
                 "DESCRIPTION:\n（内容）\n"
-                "PARAMS:\n（JSON数组，必须包含\"目标组件\"）"
+                'PARAMS:\n（JSON数组，必须包含"目标组件"）'
             )
             result = await self._tpl_call_ai(event, full_prompt)
             # Parse updated fields
             section = ""
             for line in result.split("\n"):
-                l = line.strip()
-                upper = l.upper()
+                line_s = line.strip()
+                upper = line_s.upper()
                 if upper.startswith("NAME:"):
-                    tpl["name"] = l.split(":", 1)[1].strip(); section = ""
+                    tpl["name"] = line_s.split(":", 1)[1].strip()
+                    section = ""
                 elif upper == "DESCRIPTION:":
-                    tpl["description"] = ""; section = "desc"
+                    tpl["description"] = ""
+                    section = "desc"
                 elif upper == "PARAMS:":
                     try:
                         raw = result.split("PARAMS:", 1)[1].strip()
@@ -951,7 +1103,7 @@ class WTBot(Star):
                         pass
                     section = ""
                 elif section == "desc":
-                    tpl["description"] += l + "\n"
+                    tpl["description"] += line_s + "\n"
             tpl["description"] = tpl.get("description", "").strip()
             self._save_templates(templates)
             yield event.plain_result(
@@ -965,11 +1117,11 @@ class WTBot(Star):
     async def delete_template(
         self, event: AstrMessageEvent, template_name: str
     ) -> MessageEventResult:
-        '''删除本地模板（非 Weblate 操作）。
+        """删除本地模板（非 Weblate 操作）。
 
         Args:
             template_name(string): 模板 slug（非名称）。若不知道 slug，先调 weblate_list_templates 获取列表从中匹配
-        '''
+        """
         if not self._tpl_enabled():
             yield event.plain_result("模板功能未启用。")
             return
@@ -980,14 +1132,16 @@ class WTBot(Star):
                 yield event.plain_result(f"模板 {template_name} 不存在。")
                 return
             self._save_templates(templates)
-            yield event.plain_result(f"模板 **{tpl.get('name', template_name)}** 已删除。")
+            yield event.plain_result(
+                f"模板 **{tpl.get('name', template_name)}** 已删除。"
+            )
         except Exception as e:
             logger.error(f"delete_template failed: {e}")
             yield event.plain_result(f"删除模板失败: {e}")
 
     @filter.llm_tool(name="weblate_backup_now")
     async def backup_now(self, event: AstrMessageEvent) -> MessageEventResult:
-        '''手动触发一次仓库备份（小时级）。结果直接展示。'''
+        """手动触发一次仓库备份（小时级）。结果直接展示。"""
         if not self._backup_cfg.get("enabled", False):
             yield event.plain_result("备份功能未启用，请在插件配置中开启。")
             return
@@ -999,25 +1153,33 @@ class WTBot(Star):
 
     @filter.llm_tool(name="weblate_failing_checks")
     async def failing_checks(
-        self, event: AstrMessageEvent,
-        project_slug: str = "", component_slug: str = "", lang: str = "",
+        self,
+        event: AstrMessageEvent,
+        project_slug: str = "",
+        component_slug: str = "",
+        lang: str = "",
     ) -> str:
-        '''列出检查失败的翻译单元。用户问"哪些翻译有问题"时调用。
+        """列出检查失败的翻译单元。用户问"哪些翻译有问题"时调用。
 
         Args:
             project_slug(string): 项目 slug（非名称）
             component_slug(string): 组件 slug（非名称）
             lang(string): 语言代码，如 zh_Hans
-        '''
+        """
         project_slug = self._resolve_project(project_slug)
         try:
             units = await asyncio.to_thread(
-                lambda: list(self.wt.list_translation_units(project_slug, component_slug, lang)))
+                lambda: list(
+                    self.wt.list_translation_units(project_slug, component_slug, lang)
+                )
+            )
             failing = [u for u in units if u.get("has_failing_check")]
             if not failing:
                 return f"{project_slug}/{component_slug}/{lang} 没有检查失败的翻译。"
             limit = min(len(failing), 20)
-            lines = [f"❌ {project_slug}/{component_slug}/{lang} 检查失败 ({limit}/{len(failing)})："]
+            lines = [
+                f"❌ {project_slug}/{component_slug}/{lang} 检查失败 ({limit}/{len(failing)})："
+            ]
             for u in failing[:20]:
                 src = u.get("source", "")
                 if isinstance(src, list):
@@ -1033,16 +1195,20 @@ class WTBot(Star):
 
     @filter.llm_tool(name="weblate_list_unit_translations")
     async def list_unit_translations(
-        self, event: AstrMessageEvent, unit_id: int,
+        self,
+        event: AstrMessageEvent,
+        unit_id: int,
     ) -> str:
-        '''查看一条源字符串在所有语言中的翻译。输入 unit_id。
+        """查看一条源字符串在所有语言中的翻译。输入 unit_id。
 
         Args:
             unit_id(number): 源字符串 unit ID
-        '''
+        """
         try:
             unit = await asyncio.to_thread(self.wt.get_unit, unit_id)
-            translations = await asyncio.to_thread(self.wt.list_unit_translations, unit_id)
+            translations = await asyncio.to_thread(
+                self.wt.list_unit_translations, unit_id
+            )
             src = unit.get("source", "")
             if isinstance(src, list):
                 src = " | ".join(src)
@@ -1059,7 +1225,8 @@ class WTBot(Star):
                     else:
                         tgt_str = str(tgt) if tgt else "(未翻译)"
                     st = {0: "⬜", 10: "🟡", 20: "🟢", 30: "✅"}.get(
-                        int(self._safe(t, "state", default="0")), "❓")
+                        int(self._safe(t, "state", default="0")), "❓"
+                    )
                     lines.append(f"  {st} {lang_code}: {tgt_str[:60]}")
             return "\n".join(lines)
         except Exception as e:
@@ -1098,7 +1265,11 @@ class WTBot(Star):
         interval = int(cfg.get("interval_hours", 1))
         last_key = "backup_last_hourly"
         last_ts = self._cache_get(last_key)
-        if not last_ts or (now - datetime.fromisoformat(str(last_ts))).total_seconds() >= interval * 3600:
+        if (
+            not last_ts
+            or (now - datetime.fromisoformat(str(last_ts))).total_seconds()
+            >= interval * 3600
+        ):
             self._do_backup("hourly", int(cfg.get("hourly_keep", 3)))
             self._cache_set(last_key, now.isoformat())
 
@@ -1139,7 +1310,9 @@ class WTBot(Star):
                 logger.error(f"backup {kind} failed for {slug}: {e}")
 
         # 清理旧文件
-        files = sorted(kind_dir.glob("*.zip"), key=lambda f: f.stat().st_mtime, reverse=True)
+        files = sorted(
+            kind_dir.glob("*.zip"), key=lambda f: f.stat().st_mtime, reverse=True
+        )
         for f in files[keep:]:
             f.unlink()
 
