@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.2.0
+
+### 新工具
+- `weblate_backup_now` — 手动触发仓库备份
+- `weblate_failing_checks` — 列出检查失败的翻译单元
+- `weblate_list_unit_translations` — 查看同 key 在所有语言中的翻译状态
+
+### 改进
+- 翻译进度统计 emoji 美化：🟢>80% | 🟡>50% | 🔴<50%，附 📝fuzzy ❌failing 图标
+- `weblate_autotranslate` 新增 `filter_type` 参数（all/nontranslated/todo/fuzzy/check）
+- 模板系统自动包含"目标项目"参数，`create_unit` 支持 project_slug
+
 ## v1.1.0
 
 ### 模板系统
