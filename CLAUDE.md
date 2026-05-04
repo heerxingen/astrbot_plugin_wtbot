@@ -88,6 +88,15 @@ result = await asyncio.to_thread(self.wt.some_method, arg1, arg2)
 ### 新增配置
 编辑 `_conf_schema.json`，AstrBot 热重载自动生效。
 
+### 提交前检查
+```bash
+# 格式化 + lint（AstrBot 规范要求）
+ruff format main.py
+ruff check main.py
+# 编译检查
+python3 -m py_compile main.py
+```
+
 ## 版本管理
 
 ### 版本号规则（严格）
