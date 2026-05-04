@@ -111,8 +111,7 @@ python3 -m py_compile main.py
 - **加新功能** → 第二位 +1（`v1.2.0` → `v1.3.0`）
 - **修 bug** → 第三位 +1（`v1.2.0` → `v1.2.1`）
 - **第一位（主版本）** → 未经用户明确允许，禁止修改
-- 更新 `metadata.yaml` 的 `version` 字段
-- 同步更新 `CHANGELOG.md`，新版本条目放在最上面
+- ⚠️ 改版本号必须同步三处：`metadata.yaml` version + `CHANGELOG.md` 新条目置顶 + commit message 含版本号
 
 ### 提交示例
 ```bash
