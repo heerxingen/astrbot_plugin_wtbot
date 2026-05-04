@@ -56,6 +56,12 @@
       "daily_keep": {"type": "int", "default": 3, "description": "天级备份保留数量"}
     }
   },
+  "default_lang": {
+    "description": "默认语言代码",
+    "type": "string",
+    "hint": "创建翻译单元时的默认目标语言，如 en、zh_Hans",
+    "default": "en"
+  },
   "cache_ttl": {
     "description": "缓存过期时间（秒）",
     "type": "int",
