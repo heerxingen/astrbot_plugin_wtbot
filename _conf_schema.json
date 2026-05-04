@@ -14,7 +14,13 @@
   "default_project": {
     "description": "默认项目 slug",
     "type": "string",
-    "hint": "所有操作的默认项目，可通过 Weblate 项目列表获取 slug。注意区分大小写",
+    "hint": "所有操作的默认项目。可让 AI 列出项目获取 slug。注意区分大小写",
+    "default": ""
+  },
+  "project_blacklist": {
+    "description": "项目黑名单（每行一个 slug）",
+    "type": "text",
+    "hint": "被拉黑的项目不会出现在任何列表中。每行一个 slug，支持 # 开头的注释行。可让 AI 列出项目获取 slug",
     "default": ""
   },
   "enable_templates": {
@@ -43,7 +49,7 @@
     "hint": "定时备份 Weblate 仓库翻译文件，防止数据丢失",
     "items": {
       "enabled": {"type": "bool", "default": false, "description": "启用定时备份"},
-      "project": {"type": "string", "default": "", "description": "要备份的项目 slug（空=所有项目）"},
+      "project": {"type": "string", "default": "", "description": "要备份的项目 slug（空=所有项目，可让 AI 列出获取）"},
       "interval_hours": {"type": "int", "default": 1, "description": "小时级备份间隔"},
       "hourly_keep": {"type": "int", "default": 3, "description": "小时级备份保留数量"},
       "daily_time": {"type": "string", "default": "12:00", "description": "天级备份时间 HH:MM"},

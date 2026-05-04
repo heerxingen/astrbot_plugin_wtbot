@@ -90,6 +90,18 @@ class WTBot(Star):
         filled = round(pct / 10)
         return "█" * filled + "░" * (10 - filled)
 
+    @property
+    def _blacklist(self) -> set[str]:
+        raw = (self.config.get("project_blacklist") or "").strip()
+        if not raw:
+            return set()
+        slugs: set[str] = set()
+        for line in raw.split("\n"):
+            line = line.strip()
+            if line and not line.startswith("#"):
+                slugs.add(line)
+        return slugs
+
     def _resolve_project(self, project_slug: str) -> str:
         """项目 slug 为空时回退到配置的默认项目。"""
         return project_slug or (self.config.get("default_project") or "").strip()
@@ -119,6 +131,10 @@ class WTBot(Star):
             )
             if cached is None:
                 self._cache_set(cache_key, projects)
+            # 过滤黑名单
+            bl = self._blacklist
+            if bl:
+                projects = [p for p in projects if p.get("slug") not in bl]
 
             if not projects:
                 return "没有任何翻译项目。"
@@ -1292,7 +1308,7 @@ class WTBot(Star):
         if project_slug:
             projects = [project_slug]
         else:
-            projects = [p["slug"] for p in self.wt.list_projects()]
+            projects = [p["slug"] for p in self.wt.list_projects() if p["slug"] not in self._blacklist]
         if not projects:
             return
 
