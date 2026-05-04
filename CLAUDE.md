@@ -2,13 +2,13 @@
 
 ## 项目概述
 
-WTBot 是 AstrBot 框架的插件，通过 LLM Tool 机制让用户用自然语言管理 Weblate 翻译项目。v1.3.1，28 个 LLM Tool + 模板系统 + 定时备份 + 黑名单过滤。
+WTBot 是 AstrBot 框架的插件，通过 LLM Tool 机制让用户用自然语言管理 Weblate 翻译项目。v1.3.3，28 个 LLM Tool + 模板系统 + 定时备份 + 黑名单过滤。
 
 ## 项目结构
 
 ```
 WTBot/
-├── main.py              # 核心：Star 子类 + 全部 LLM Tool（~1200 行）
+├── main.py              # 核心：Star 子类 + 全部 LLM Tool（~1350 行）
 ├── wtapi/               # 内嵌的 Weblate SDK（148 方法，仅依赖 requests）
 ├── metadata.yaml        # AstrBot 插件元数据（name/desc/version）
 ├── _conf_schema.json    # 插件配置 Schema（WebUI 面板）
@@ -32,6 +32,7 @@ WTBot/
 cp ~/Documents/Code/WTBot/main.py ~/Astrbot/data/plugins/astrbot_plugin_wtbot/main.py
 cp ~/Documents/Code/WTBot/_conf_schema.json ~/Astrbot/data/plugins/astrbot_plugin_wtbot/_conf_schema.json
 cp ~/Documents/Code/WTBot/metadata.yaml ~/Astrbot/data/plugins/astrbot_plugin_wtbot/metadata.yaml
+cp ~/Documents/Code/WTBot/requirements.txt ~/Astrbot/data/plugins/astrbot_plugin_wtbot/requirements.txt
 ```
 其他文件（CHANGELOG、LICENSE、CLAUDE.md 等）也一并同步对应路径。
 修改 wtapi/ 目录时同样需同步到插件目录下的 wtapi/。
