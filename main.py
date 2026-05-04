@@ -1058,12 +1058,12 @@ class WTBot(Star):
     # ================================================================
 
     def __init__(self, context: Context, config: AstrBotConfig):
-        super().__init__(context, config)  # type: ignore[arg-type]
+        super().__init__(context)
         self.config = config
         self._wt: WeblateBot | None = None
         self._cache_dir: Path | None = None
         # 启动后台备份
-        asyncio.ensure_future(self._backup_loop())
+        asyncio.get_running_loop().create_task(self._backup_loop())
 
     async def terminate(self):
         self._wt = None
