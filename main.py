@@ -1023,8 +1023,8 @@ class WTBot(Star):
 
             # 确保项目、组件在 params 中
             for pname, pdesc in [
-                ("目标项目", "We​blate 项目 slug"),
-                ("目标组件", "We​blate 组件 slug"),
+                ("目标项目", "Weblate 项目 slug"),
+                ("目标组件", "Weblate 组件 slug"),
             ]:
                 if not any(p.get("name", "") == pname for p in params):
                     params.append({"name": pname, "desc": pdesc, "required": True})
@@ -1320,13 +1320,17 @@ class WTBot(Star):
     # 生命周期
     # ================================================================
 
+    _backup_started = False
+
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context)
         self.config = config
         self._wt: WeblateBot | None = None
         self._cache_dir: Path | None = None
-        # 启动后台备份
-        asyncio.get_running_loop().create_task(self._backup_loop())
+        # 启动后台备份（仅首次，防止热重载创建重复循环）
+        if not WTBot._backup_started:
+            WTBot._backup_started = True
+            asyncio.get_running_loop().create_task(self._backup_loop())
 
     async def terminate(self):
         self._wt = None
