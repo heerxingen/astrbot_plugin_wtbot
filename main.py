@@ -409,16 +409,14 @@ class WTBot(Star):
 
     _TEMPLATE_SYSTEM_PROMPT = (
         "你是一个翻译项目模板助手。用户会描述需要创建的字符串模板规则，"
-        "你将其整理为简洁的自然语言模板描述。\n\n"
-        "模板描述应包含：\n"
-        "- 何时使用该模板\n"
-        "- 目标组件\n"
-        "- key 和 source 的格式规则\n"
-        "- 已知的中英名称映射\n\n"
+        "你将其整理为三段式模板：模板名称、模板内容（自然语言规则）、模板所需参数。\n\n"
+        "三段要求：\n"
+        "1. 模板名称：简洁中文名称\n"
+        "2. 模板内容：自然语言规则描述，包含何时使用、目标组件、key/source 格式规则、已知名称映射\n"
+        "3. 模板所需参数：列出执行此模板时 LLM 需要向用户收集的信息，"
+        "每个参数注明名称、说明、是否必填。若参数可 LLM 自行推断则标注\"可推断\"\n\n"
         "重要规则：\n"
-        "- 若 key 中需要包含项目专有名词（角色名、武器名、地名等），"
-        "必须在模板描述中明确注明\"这些名词需用户提供英文翻译，禁止自行音译或意译\"，"
-        "以便后续 LLM 执行时不会擅自翻译\n"
+        "- 若参数值需写入 key 且属于项目专有名词，必须在参数说明中强调\"需用户提供英文翻译，禁止 AI 自行翻译\"\n"
         "- 只写规则，不写示例代码或 JSON\n"
         "- 用中文"
     )
@@ -502,9 +500,15 @@ class WTBot(Star):
             templates = self._load_templates()
             if not templates:
                 return "当前没有任何字符串模板。可以通过对话创建。"
-            lines = ["可用模板："]
+            lines = ["可用模板（含所需参数）："]
             for slug, tpl in templates.items():
-                lines.append(f"  {tpl.get('name', slug)} (slug: {slug}) — {tpl.get('description', '')[:80]}")
+                name = tpl.get('name', slug)
+                desc = tpl.get('description', '')[:60]
+                tpl_params = tpl.get('params', [])
+                if tpl_params:
+                    p_names = [p.get('name', '?') for p in tpl_params]
+                    desc += f" | 需要: {', '.join(p_names)}"
+                lines.append(f"  {name} (slug: {slug}) — {desc}")
             return "\n".join(lines)
         except Exception as e:
             return self._handle_err("list_templates", e)
@@ -523,10 +527,17 @@ class WTBot(Star):
             tpl = templates.get(template_name)
             if not tpl:
                 return f"模板 {template_name} 不存在。可用模板: {', '.join(templates.keys())}"
+            tpl_params = tpl.get('params', [])
+            params_text = ""
+            if tpl_params:
+                for p in tpl_params:
+                    req = "必填" if p.get('required', True) else "可选"
+                    params_text += f"  - {p.get('name', '?')} ({req}): {p.get('desc', '')}\n"
             return (
                 f"模板 **{tpl.get('name', template_name)}** ({template_name})：\n\n"
-                f"{tpl.get('description', '')}\n\n"
-                f"目标组件: {tpl.get('component', '未指定')}"
+                f"目标组件: {tpl.get('component', '未指定')}\n\n"
+                f"**模板内容：**\n{tpl.get('description', '')}\n\n"
+                f"**所需参数：**\n{params_text or '无'}"
             )
         except Exception as e:
             return self._handle_err("show_template", e)
@@ -579,41 +590,54 @@ class WTBot(Star):
             templates = self._load_templates()
             full_prompt = (
                 f"用户需求：{requirement}\n\n"
-                "请根据上述需求生成自然语言模板描述。\n"
-                "同时为模板起一个英文 slug（小写+下划线）和中文名称。\n"
-                "按以下格式输出（每行一项）：\n"
-                "SLUG: xxx\n"
-                "NAME: xxx\n"
-                "COMPONENT: xxx\n"
+                "请生成三段式模板。按以下格式输出：\n"
+                "SLUG: 英文slug（小写+下划线）\n"
+                "NAME: 中文模板名称\n"
+                "COMPONENT: 目标组件slug\n"
                 "DESCRIPTION:\n"
-                "xxx"
+                "（自然语言模板内容，可多行）\n"
+                "PARAMS:\n"
+                "（JSON 数组格式的参数列表，每个参数含 name/desc/required 字段）"
             )
             result = await self._tpl_call_ai(event, full_prompt)
             # Parse AI output
             slug = ""
             name = ""
             component = ""
-            desc_lines = []
-            in_desc = False
+            desc_lines: list[str] = []
+            params_lines: list[str] = []
+            section = ""
             for line in result.split("\n"):
                 l = line.strip()
                 upper = l.upper()
                 if upper.startswith("SLUG:"):
-                    slug = l.split(":", 1)[1].strip()
+                    slug = l.split(":", 1)[1].strip(); section = ""
                 elif upper.startswith("NAME:"):
-                    name = l.split(":", 1)[1].strip()
+                    name = l.split(":", 1)[1].strip(); section = ""
                 elif upper.startswith("COMPONENT:"):
-                    component = l.split(":", 1)[1].strip()
+                    component = l.split(":", 1)[1].strip(); section = ""
                 elif upper == "DESCRIPTION:":
-                    in_desc = True
-                elif upper.startswith("DESCRIPTION:"):
-                    # DESCRIPTION:xxx on same line
-                    desc_lines.append(l.split(":", 1)[1].strip())
-                    in_desc = True
-                elif in_desc:
+                    section = "desc"
+                elif upper == "PARAMS:":
+                    section = "params"
+                elif section == "desc":
                     desc_lines.append(l)
+                elif section == "params":
+                    params_lines.append(l)
 
-            # Fallback: if not parsed, use raw result
+            # Parse params JSON
+            params: list[dict] = []
+            if params_lines:
+                try:
+                    raw_json = "\n".join(params_lines)
+                    raw_json = raw_json.replace("```json", "").replace("```", "")
+                    params = json.loads(raw_json)
+                    if isinstance(params, dict):
+                        params = list(params.values()) or [params]
+                except json.JSONDecodeError:
+                    params = []
+
+            # Fallbacks
             if not slug:
                 slug = requirement.strip()[:30].replace(" ", "_").lower()
             if not name:
@@ -624,6 +648,7 @@ class WTBot(Star):
             templates[slug] = {
                 "name": name,
                 "description": "\n".join(desc_lines).strip(),
+                "params": params,
                 "component": component or "?",
             }
             self._save_templates(templates)
@@ -655,13 +680,45 @@ class WTBot(Star):
             if not tpl:
                 yield event.plain_result(f"模板 {template_name} 不存在。可用: {', '.join(templates.keys())}")
                 return
+            current = json.dumps(tpl, ensure_ascii=False, indent=2)
             full_prompt = (
-                f"当前模板描述：\n{tpl.get('description', '')}\n\n"
+                f"当前模板：\n{current}\n\n"
                 f"修改需求：{requirement}\n\n"
-                "请根据修改需求更新模板描述，保持其他规则不变。只输出更新后的描述文本。"
+                "请根据修改需求更新模板。按以下格式输出：\n"
+                "NAME: 模板名\n"
+                "COMPONENT: 组件\n"
+                "DESCRIPTION:\n（内容）\n"
+                "PARAMS:\n（JSON数组）"
             )
             result = await self._tpl_call_ai(event, full_prompt)
-            tpl["description"] = result.strip()
+            # Parse updated fields
+            section = ""
+            for line in result.split("\n"):
+                l = line.strip()
+                upper = l.upper()
+                if upper.startswith("NAME:"):
+                    tpl["name"] = l.split(":", 1)[1].strip(); section = ""
+                elif upper.startswith("COMPONENT:"):
+                    tpl["component"] = l.split(":", 1)[1].strip(); section = ""
+                elif upper.startswith("DESCRIPTION:"):
+                    tpl["description"] = ""; section = "desc"
+                elif upper == "DESCRIPTION:":
+                    section = "desc"
+                elif upper == "PARAMS:":
+                    section = "params"; tpl["params"] = []
+                elif section == "desc":
+                    tpl["description"] += l + "\n"
+                elif section == "params":
+                    try:
+                        raw = result.split("PARAMS:", 1)[1].strip()
+                        raw = raw.replace("```json", "").replace("```", "")
+                        tpl["params"] = json.loads(raw)
+                        if isinstance(tpl["params"], dict):
+                            tpl["params"] = list(tpl["params"].values())
+                        section = ""
+                    except Exception:
+                        pass
+            tpl["description"] = tpl.get("description", "").strip()
             self._save_templates(templates)
             yield event.plain_result(
                 f"模板 **{tpl.get('name', template_name)}** 已更新：\n\n{result}"
