@@ -23,12 +23,6 @@ from wtapi import WeblateBot, WeblateError
 class WTBot(Star):
     """Weblate 翻译管理插件 — 提供 LLM Tools 供 AI 自动调用。"""
 
-    def __init__(self, context: Context, config: AstrBotConfig):
-        super().__init__(context)
-        self.config = config
-        self._wt: WeblateBot | None = None
-        self._cache_dir: Path | None = None
-
     # ---- 懒加载 ----
 
     @property
@@ -982,8 +976,94 @@ class WTBot(Star):
             yield event.plain_result(f"删除模板失败: {e}")
 
     # ================================================================
+    # 定时备份
+    # ================================================================
+
+    @property
+    def _backup_cfg(self) -> dict:
+        return self.config.get("backup", {}) or {}
+
+    @property
+    def _backup_dir(self) -> Path:
+        p = Path("data/plugin_data/wtbot/backups")
+        p.mkdir(parents=True, exist_ok=True)
+        return p
+
+    async def _backup_loop(self):
+        await asyncio.sleep(10)  # 插件启动后等 10s 再开始
+        while True:
+            await asyncio.sleep(60)
+            try:
+                if not self._backup_cfg.get("enabled", False):
+                    continue
+                await asyncio.to_thread(self._backup_tick)
+            except Exception as e:
+                logger.error(f"backup tick failed: {e}")
+
+    def _backup_tick(self):
+        now = datetime.now()
+        cfg = self._backup_cfg
+
+        # 小时级
+        interval = int(cfg.get("interval_hours", 1))
+        last_key = "backup_last_hourly"
+        last_ts = self._cache_get(last_key)
+        if not last_ts or (now - datetime.fromisoformat(str(last_ts))).total_seconds() >= interval * 3600:
+            self._do_backup("hourly", int(cfg.get("hourly_keep", 3)))
+            self._cache_set(last_key, now.isoformat())
+
+        # 天级
+        daily_time = cfg.get("daily_time", "12:00")
+        try:
+            target_h, target_m = map(int, daily_time.split(":"))
+        except Exception:
+            target_h, target_m = 12, 0
+        last_key_d = "backup_last_daily"
+        last_date = self._cache_get(last_key_d)
+        today = now.strftime("%Y-%m-%d")
+        if now.hour == target_h and now.minute >= target_m and last_date != today:
+            self._do_backup("daily", int(cfg.get("daily_keep", 3)))
+            self._cache_set(last_key_d, today)
+
+    def _do_backup(self, kind: str, keep: int):
+        cfg = self._backup_cfg
+        project_slug = (cfg.get("project") or "").strip()
+        if project_slug:
+            projects = [project_slug]
+        else:
+            projects = [p["slug"] for p in self.wt.list_projects()]
+        if not projects:
+            return
+
+        kind_dir = self._backup_dir / kind
+        kind_dir.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        for slug in projects:
+            try:
+                content = self.wt.download_project_file(slug, format="zip")
+                filename = f"{slug}_{ts}.zip"
+                (kind_dir / filename).write_bytes(content)
+                logger.info(f"backup {kind}: {filename}")
+            except Exception as e:
+                logger.error(f"backup {kind} failed for {slug}: {e}")
+
+        # 清理旧文件
+        files = sorted(kind_dir.glob("*.zip"), key=lambda f: f.stat().st_mtime, reverse=True)
+        for f in files[keep:]:
+            f.unlink()
+
+    # ================================================================
     # 生命周期
     # ================================================================
+
+    def __init__(self, context: Context, config: AstrBotConfig):
+        super().__init__(context, config)  # type: ignore[arg-type]
+        self.config = config
+        self._wt: WeblateBot | None = None
+        self._cache_dir: Path | None = None
+        # 启动后台备份
+        asyncio.ensure_future(self._backup_loop())
 
     async def terminate(self):
         self._wt = None
