@@ -22,7 +22,16 @@ WTBot/
 
 - 开发仓库：`~/Documents/Code/WTBot/`（GitHub: `heerxingen/astrbot_plugin_wtbot`）
 - AstrBot 插件目录：`~/Astrbot/data/plugins/astrbot_plugin_wtbot/`
-- 修改后必须同步：`cp main.py ~/Astrbot/data/plugins/astrbot_plugin_wtbot/`
+
+### ⚠️ 修改后必须同步到插件目录
+每次修改 main.py、_conf_schema.json、metadata.yaml、requirements.txt 后，必须同步：
+```bash
+cp ~/Documents/Code/WTBot/main.py ~/Astrbot/data/plugins/astrbot_plugin_wtbot/main.py
+cp ~/Documents/Code/WTBot/_conf_schema.json ~/Astrbot/data/plugins/astrbot_plugin_wtbot/_conf_schema.json
+cp ~/Documents/Code/WTBot/metadata.yaml ~/Astrbot/data/plugins/astrbot_plugin_wtbot/metadata.yaml
+```
+其他文件（CHANGELOG、LICENSE、CLAUDE.md 等）也一并同步对应路径。
+修改 wtapi/ 目录时同样需同步到插件目录下的 wtapi/。
 
 ## 核心架构
 
@@ -78,6 +87,28 @@ result = await asyncio.to_thread(self.wt.some_method, arg1, arg2)
 
 ### 新增配置
 编辑 `_conf_schema.json`，AstrBot 热重载自动生效。
+
+## 版本管理
+
+### 版本号规则（严格）
+- **加新功能** → 第二位 +1（`v1.2.0` → `v1.3.0`）
+- **修 bug** → 第三位 +1（`v1.2.0` → `v1.2.1`）
+- **第一位（主版本）** → 未经用户明确允许，禁止修改
+- 更新 `metadata.yaml` 的 `version` 字段
+- 同步更新 `CHANGELOG.md`，新版本条目放在最上面
+
+### 提交示例
+```bash
+# 新功能
+vim metadata.yaml  # version: 1.2.0 → 1.3.0
+vim CHANGELOG.md   # 新增 v1.3.0 条目
+git add -A && git commit -m "v1.3.0: 新功能描述"
+
+# 修 bug
+vim metadata.yaml  # version: 1.2.0 → 1.2.1
+vim CHANGELOG.md   # 新增 v1.2.1 条目
+git add -A && git commit -m "v1.2.1: 修复描述"
+```
 
 ## Git 约定
 - 推送默认后台，卡了不管
