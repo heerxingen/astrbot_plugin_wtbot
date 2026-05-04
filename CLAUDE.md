@@ -2,7 +2,7 @@
 
 ## 项目概述
 
-WTBot 是 AstrBot 框架的插件，通过 LLM Tool 机制让用户用自然语言管理 Weblate 翻译项目。v1.2.0，25 个 LLM Tool + 模板系统 + 定时备份。
+WTBot 是 AstrBot 框架的插件，通过 LLM Tool 机制让用户用自然语言管理 Weblate 翻译项目。v1.3.1，28 个 LLM Tool + 模板系统 + 定时备份 + 黑名单过滤。
 
 ## 项目结构
 
@@ -18,10 +18,13 @@ WTBot/
 └── LICENSE
 ```
 
-## 部署路径
+## 部署
 
 - 开发仓库：`~/Documents/Code/WTBot/`（GitHub: `heerxingen/astrbot_plugin_wtbot`）
-- AstrBot 插件目录：`~/Astrbot/data/plugins/astrbot_plugin_wtbot/`
+- AstrBot 安装：`~/Astrbot/`（通过 `uv` 运行）
+- 插件目录：`~/Astrbot/data/plugins/astrbot_plugin_wtbot/`
+- 数据目录（缓存/备份/模板）：`~/Astrbot/data/plugin_data/wtbot/`
+- `main.py` 中通过 `sys.path.insert(0, __file__ dirname)` 让 wtapi 可导入
 
 ### ⚠️ 修改后必须同步到插件目录
 每次修改 main.py、_conf_schema.json、metadata.yaml、requirements.txt 后，必须同步：
@@ -68,9 +71,18 @@ result = await asyncio.to_thread(self.wt.some_method, arg1, arg2)
 - 配置在 `backup` 嵌套对象中
 - 备份文件：`data/plugin_data/wtbot/backups/{hourly|daily|manual}/{slug}_{timestamp}.zip`
 
+### 项目黑名单
+- 配置 `project_blacklist`：text 类型，每行一个 slug，`#` 注释
+- `_blacklist` 属性解析 → `set[str]`
+- `list_projects` 和 `_do_backup` 中自动过滤
+
 ### Slug 解析
 - 所有 `project_slug` 参数默认 `""` → `_resolve_project()` 回退配置 `default_project`
 - Tool 描述中告知 LLM："若用户用名称而非 slug，先调 list_xxx 查表匹配"
+
+### 防止热重载副作用
+- 备份循环用类级别 `_backup_started = False` 标记，`__init__` 中仅首次启动
+- 防止每次 `save_config()` 触发热重载后创建重复循环
 
 ## 常用开发模式
 
