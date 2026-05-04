@@ -403,6 +403,234 @@ class WTBot(Star):
         except Exception as e:
             return self._handle_err("language_stats", e)
 
+    @filter.llm_tool(name="weblate_list_languages")
+    async def list_languages(self, event: AstrMessageEvent) -> str:
+        '''列出 Weblate 支持的所有语言代码。当需要知道合法语言代码时调用。'''
+        try:
+            langs = await asyncio.to_thread(lambda: list(self.wt.list_languages()))
+            if not langs:
+                return "未找到任何语言。"
+            lines = [f"  {l.get('code', '?')} — {l.get('name', '?')} ({l.get('direction', '?')})" for l in langs]
+            return f"共 {len(langs)} 种语言：\n" + "\n".join(lines)
+        except Exception as e:
+            return self._handle_err("list_languages", e)
+
+    @filter.llm_tool(name="weblate_repository_commit")
+    async def repository_commit(
+        self, event: AstrMessageEvent, project_slug: str = "", component_slug: str = ""
+    ) -> str:
+        '''提交 Weblate 仓库的待处理变更。pull → commit → push 流程的一环。
+
+        Args:
+            project_slug(string): 项目 slug（非名称）。若用户用名称，先调 weblate_list_projects 获取列表从中匹配。可选，默认使用配置的默认项目
+            component_slug(string): 组件 slug（非名称）。若用户用名称，先调 weblate_list_components 获取列表从中匹配
+        '''
+        project_slug = self._resolve_project(project_slug)
+        try:
+            result = await asyncio.to_thread(
+                self.wt.repo_component, project_slug, component_slug, "commit")
+            self._cache_clear_prefix("")
+            return f"已提交 {project_slug}/{component_slug} 仓库。result: {result.get('result', '-')}"
+        except Exception as e:
+            return self._handle_err("repository_commit", e)
+
+    @filter.llm_tool(name="weblate_autotranslate")
+    async def autotranslate(
+        self, event: AstrMessageEvent,
+        project_slug: str = "", component_slug: str = "", lang: str = "",
+        mode: str = "translate",
+    ) -> str:
+        '''触发 Weblate 批量自动翻译。会用机器翻译填充未翻译的字符串。建议执行前先确认。
+
+        Args:
+            project_slug(string): 项目 slug（非名称）
+            component_slug(string): 组件 slug（非名称）
+            lang(string): 目标语言代码
+            mode(string): 模式 — translate(直接翻译), suggest(仅建议), fuzzy(标记需编辑)。默认 translate
+        '''
+        project_slug = self._resolve_project(project_slug)
+        try:
+            result = await asyncio.to_thread(
+                self.wt.autotranslate, project_slug, component_slug, lang,
+                mode=mode)
+            return f"自动翻译已触发：{project_slug}/{component_slug}/{lang} mode={mode}\n结果: {result}"
+        except Exception as e:
+            return self._handle_err("autotranslate", e)
+
+    @filter.llm_tool(name="weblate_list_changes")
+    async def list_changes(
+        self, event: AstrMessageEvent,
+        user: str = "", action: str = "", hours: int = 24,
+    ) -> str:
+        '''查看全局翻译变更历史（不限项目/组件）。
+
+        Args:
+            user(string): 按用户名筛选，可选
+            action(string): 按操作类型筛选，可选
+            hours(number): 最近多少小时，默认 24
+        '''
+        try:
+            params: dict[str, str] = {}
+            if user:
+                params["user"] = user
+            if action:
+                params["action"] = action
+            since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+            params["timestamp_after"] = since
+            changes = await asyncio.to_thread(
+                lambda: list(self.wt.list_changes(**params)))
+            if not changes:
+                return f"最近 {hours} 小时内没有变更。"
+            limit = min(len(changes), 20)
+            lines = [f"最近 {hours}h 变更 ({limit}/{len(changes)})："]
+            for ch in changes[:20]:
+                ts = (self._safe(ch, "timestamp"))[:19]
+                raw = ch.get("user", "")
+                u = raw.split("/")[-2] if raw and "/" in str(raw) else self._safe(ch, "author", default="系统")
+                act = self._safe(ch, "action_name")
+                tgt = f" → {str(ch.get('target', ''))[:40]}" if ch.get("target") else ""
+                lines.append(f"  {ts} {u}: {act}{tgt}")
+            return "\n".join(lines)
+        except Exception as e:
+            return self._handle_err("list_changes", e)
+
+    @filter.llm_tool(name="weblate_component_lock")
+    async def component_lock(
+        self, event: AstrMessageEvent,
+        project_slug: str = "", component_slug: str = "", locked: str = "",
+    ) -> str:
+        '''查看或设置组件锁定状态。锁定后禁止翻译修改。
+
+        Args:
+            project_slug(string): 项目 slug（非名称）
+            component_slug(string): 组件 slug（非名称）
+            locked(string): 可选。传 "true" 锁定，"false" 解锁，不传查看当前状态
+        '''
+        project_slug = self._resolve_project(project_slug)
+        try:
+            if locked.lower() in ("true", "false", "1", "0"):
+                lock_bool = locked.lower() in ("true", "1")
+                result = await asyncio.to_thread(
+                    self.wt.set_component_lock, project_slug, component_slug, lock_bool)
+                state = "已锁定" if result.get("locked") else "已解锁"
+                return f"{project_slug}/{component_slug} {state}"
+            result = await asyncio.to_thread(
+                self.wt.get_component_lock, project_slug, component_slug)
+            state = "已锁定" if result.get("locked") else "未锁定"
+            return f"{project_slug}/{component_slug} {state}"
+        except Exception as e:
+            return self._handle_err("component_lock", e)
+
+    @filter.llm_tool(name="weblate_translation_stats")
+    async def translation_stats(
+        self, event: AstrMessageEvent,
+        project_slug: str = "", component_slug: str = "", lang: str = "",
+    ) -> str:
+        '''获取单个翻译语言的精确统计数据。
+
+        Args:
+            project_slug(string): 项目 slug（非名称）
+            component_slug(string): 组件 slug（非名称）
+            lang(string): 语言代码，如 zh_Hans
+        '''
+        project_slug = self._resolve_project(project_slug)
+        try:
+            stats = await asyncio.to_thread(
+                self.wt.get_translation_statistics, project_slug, component_slug, lang)
+            return (
+                f"{project_slug}/{component_slug}/{lang} 统计：\n"
+                f"  总条目:   {stats.get('total', 0)}\n"
+                f"  已翻译:   {stats.get('translated', 0)} ({stats.get('translated_percent', 0)}%)\n"
+                f"  待编辑:   {stats.get('fuzzy', 0)}\n"
+                f"  检查失败: {stats.get('failing', 0)}\n"
+                f"  已核准:   {stats.get('approved', 0)}\n"
+                f"  建议数:   {stats.get('suggestions', 0)}\n"
+                f"  评论数:   {stats.get('comments', 0)}"
+            )
+        except Exception as e:
+            return self._handle_err("translation_stats", e)
+
+    @filter.llm_tool(name="weblate_create_unit_comment")
+    async def create_unit_comment(
+        self, event: AstrMessageEvent, unit_id: int, comment: str,
+    ) -> str:
+        '''给翻译单元添加评论。
+
+        Args:
+            unit_id(number): 翻译单元 ID
+            comment(string): 评论内容
+        '''
+        try:
+            await asyncio.to_thread(self.wt.create_unit_comment, unit_id, comment)
+            return f"已为 unit #{unit_id} 添加评论。"
+        except Exception as e:
+            return self._handle_err("create_unit_comment", e)
+
+    @filter.llm_tool(name="weblate_download_file")
+    async def download_file(
+        self, event: AstrMessageEvent,
+        project_slug: str = "", component_slug: str = "", lang: str = "",
+        format: str = "po",
+    ) -> MessageEventResult:
+        '''下载翻译文件并直接发送给用户。
+
+        Args:
+            project_slug(string): 项目 slug（非名称）
+            component_slug(string): 组件 slug（非名称）
+            lang(string): 语言代码
+            format(string): 文件格式，默认 po，可选 json/csv/xliff 等
+        '''
+        project_slug = self._resolve_project(project_slug)
+        try:
+            content = await asyncio.to_thread(
+                self.wt.download_file, project_slug, component_slug, lang, format=format)
+            dl_dir = Path("data/plugin_data/wtbot/downloads")
+            dl_dir.mkdir(parents=True, exist_ok=True)
+            filename = f"{project_slug}_{component_slug}_{lang}.{format}"
+            filepath = dl_dir / filename
+            filepath.write_bytes(content)
+            size_kb = len(content) / 1024
+            yield event.plain_result(
+                f"已下载 {project_slug}/{component_slug}/{lang}.{format} ({size_kb:.1f} KB)")
+            import astrbot.api.message_components as Comp
+            yield event.chain_result([Comp.File(file=str(filepath), name=filename)])
+        except Exception as e:
+            yield event.plain_result(f"下载失败: {e}")
+
+    @filter.llm_tool(name="weblate_upload_file")
+    async def upload_file(
+        self, event: AstrMessageEvent,
+        project_slug: str = "", component_slug: str = "", lang: str = "",
+        filepath: str = "", method: str = "translate",
+    ) -> MessageEventResult:
+        '''上传本地翻译文件到 Weblate。用户需提供服务器上的文件路径。
+
+        Args:
+            project_slug(string): 项目 slug（非名称）
+            component_slug(string): 组件 slug（非名称）
+            lang(string): 语言代码
+            filepath(string): 服务器上的文件路径
+            method(string): 导入方式 — translate(翻译), add(添加源), suggest(建议), fuzzy(标记需编辑), replace(替换)
+        '''
+        project_slug = self._resolve_project(project_slug)
+        if not filepath:
+            yield event.plain_result("请提供服务器上的文件路径。")
+            return
+        if not Path(filepath).exists():
+            yield event.plain_result(f"文件不存在: {filepath}")
+            return
+        try:
+            result = await asyncio.to_thread(
+                self.wt.upload_file, project_slug, component_slug, lang,
+                filepath, method=method)
+            self._cache_clear_prefix("")
+            yield event.plain_result(
+                f"已上传到 {project_slug}/{component_slug}/{lang}\n"
+                f"方式: {method}\n结果: {result}"
+            )
+        except Exception as e:
+            yield event.plain_result(f"上传失败: {e}")
+
     # ================================================================
     # 模板系统
     # ================================================================
