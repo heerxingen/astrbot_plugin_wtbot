@@ -412,8 +412,9 @@ class WTBot(Star):
         "你将其整理为三段式模板：模板名称、模板内容（自然语言规则）、模板所需参数。\n\n"
         "三段要求：\n"
         "1. 模板名称：简洁中文名称\n"
-        "2. 模板内容：自然语言规则描述，包含何时使用、目标组件、key/source 格式规则、已知名称映射\n"
-        "3. 模板所需参数：列出执行此模板时 LLM 需要向用户收集的信息，"
+        "2. 模板内容：自然语言规则描述，包含何时使用、key/source 格式规则、已知名称映射\n"
+        "3. 模板所需参数：列出执行此模板时 LLM 需要向用户收集的信息。"
+        "必须包含\"目标组件\"参数（We​blate 组件 slug）。"
         "每个参数注明名称、说明、是否必填。若参数可 LLM 自行推断则标注\"可推断\"\n\n"
         "重要规则：\n"
         "- 若参数值需写入 key 且属于项目专有名词，必须在参数说明中强调\"需用户提供英文翻译，禁止 AI 自行翻译\"\n"
@@ -535,7 +536,6 @@ class WTBot(Star):
                     params_text += f"  - {p.get('name', '?')} ({req}): {p.get('desc', '')}\n"
             return (
                 f"模板 **{tpl.get('name', template_name)}** ({template_name})：\n\n"
-                f"目标组件: {tpl.get('component', '未指定')}\n\n"
                 f"**模板内容：**\n{tpl.get('description', '')}\n\n"
                 f"**所需参数：**\n{params_text or '无'}"
             )
@@ -645,11 +645,15 @@ class WTBot(Star):
             if not desc_lines:
                 desc_lines = [result]
 
+            # 确保 component 在 params 中
+            if component and component != "?":
+                has_comp = any(p.get("name", "") == "目标组件" for p in params)
+                if not has_comp:
+                    params.append({"name": "目标组件", "desc": "We​blate 组件 slug", "required": True})
             templates[slug] = {
                 "name": name,
                 "description": "\n".join(desc_lines).strip(),
                 "params": params,
-                "component": component or "?",
             }
             self._save_templates(templates)
             yield event.plain_result(
@@ -686,9 +690,8 @@ class WTBot(Star):
                 f"修改需求：{requirement}\n\n"
                 "请根据修改需求更新模板。按以下格式输出：\n"
                 "NAME: 模板名\n"
-                "COMPONENT: 组件\n"
                 "DESCRIPTION:\n（内容）\n"
-                "PARAMS:\n（JSON数组）"
+                "PARAMS:\n（JSON数组，必须包含\"目标组件\"）"
             )
             result = await self._tpl_call_ai(event, full_prompt)
             # Parse updated fields
@@ -698,17 +701,10 @@ class WTBot(Star):
                 upper = l.upper()
                 if upper.startswith("NAME:"):
                     tpl["name"] = l.split(":", 1)[1].strip(); section = ""
-                elif upper.startswith("COMPONENT:"):
-                    tpl["component"] = l.split(":", 1)[1].strip(); section = ""
-                elif upper.startswith("DESCRIPTION:"):
-                    tpl["description"] = ""; section = "desc"
                 elif upper == "DESCRIPTION:":
-                    section = "desc"
+                    tpl["description"] = ""; section = "desc"
                 elif upper == "PARAMS:":
-                    section = "params"; tpl["params"] = []
-                elif section == "desc":
-                    tpl["description"] += l + "\n"
-                elif section == "params":
+                    section = "params"
                     try:
                         raw = result.split("PARAMS:", 1)[1].strip()
                         raw = raw.replace("```json", "").replace("```", "")
@@ -718,6 +714,8 @@ class WTBot(Star):
                         section = ""
                     except Exception:
                         pass
+                elif section == "desc":
+                    tpl["description"] += l + "\n"
             tpl["description"] = tpl.get("description", "").strip()
             self._save_templates(templates)
             yield event.plain_result(
