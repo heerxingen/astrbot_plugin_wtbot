@@ -72,21 +72,29 @@ result = await asyncio.to_thread(self.wt.some_method, arg1, arg2)
 - 所有 `project_slug` 参数默认 `""` → `_resolve_project()` 回退配置 `default_project`
 - Tool 描述中告知 LLM："若用户用名称而非 slug，先调 list_xxx 查表匹配"
 
-## 配置结构
-
-嵌套对象 `backup` 提供折叠组。`_special: select_provider` 提供下拉选择器。`editor_mode: true` 提供 JSON 编辑器。
-
 ## 常用开发模式
 
 ### 新增 LLM Tool
-1. 检查 WTapi 是否有对应方法（`grep "def xxx" wtapi/client.py`）
-2. 在 main.py 中添加 `@filter.llm_tool(name="weblate_xxx")` 装饰的 async 方法
-3. 查询类 `return str`，操作类 `yield event.plain_result(...)`
-4. 参数有 slug 的加 `= ""` 默认 + `_resolve_project()`
-5. 参数描述加 "(非名称)" 提示 LLM 查表
+1. `grep "def <method>" wtapi/client.py` 确认 WTapi 有对应方法
+2. 在 main.py 加 `@filter.llm_tool(name="weblate_xxx")` 装饰的 async 方法
+3. 查询类 `return str`，创建/修改/删除类 `yield event.plain_result(...)` + 返回类型 `MessageEventResult`
+4. 参数有 project_slug 的加 `= ""` 默认，函数体内调 `project_slug = self._resolve_project(project_slug)`
+5. slug 参数的 Args 描述：`项目 slug（非名称）。若用户用名称，先调 weblate_list_projects 获取列表从中匹配`
 
-### 新增配置
-编辑 `_conf_schema.json`，AstrBot 热重载自动生效。
+### 新增配置项
+编辑 `_conf_schema.json`，字段格式：
+```json
+"key_name": {
+    "description": "中文说明",
+    "type": "string|bool|int|object|text",
+    "hint": "悬浮提示文字",
+    "default": <默认值>
+}
+```
+- `type: "object"` + `items` → WebUI 折叠组
+- `_special: "select_provider"` → 下拉选 AI 模型
+- `"editor_mode": true` + `"editor_language": "json"` → 代码编辑器
+- AstrBot 保存配置后自动热重载
 
 ### 提交前检查
 ```bash
