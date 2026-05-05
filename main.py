@@ -1008,7 +1008,7 @@ class WTBot(Star):
         return bool(self.config.get("enable_templates", False))
 
     def _load_templates(self) -> dict:
-        # 始终以文件为主数据源
+        """加载模板，插件配置为唯一数据源。重载时 config 与文件不同 → config 覆盖文件。"""
         file_data: dict = {}
         if self._tpl_path.exists():
             try:
@@ -1016,7 +1016,6 @@ class WTBot(Star):
             except Exception:
                 pass
 
-        # 热重载检测：config 与文件不同 → 同步
         override = (self.config.get("templates_override") or "").strip()
         try:
             override_data = json.loads(override) if override else {}
@@ -1027,21 +1026,12 @@ class WTBot(Star):
         override_sorted = json.dumps(override_data, sort_keys=True, ensure_ascii=False)
 
         if override_sorted != file_sorted:
-            if override_data and not file_data:
-                # config 有内容、文件为空 → 用户粘贴了，导入到文件
-                self._save_templates(override_data)
-                return override_data
-            # 文件有内容、与 config 不同 → 文件更新了（LLM 改的），同步到 config
-            if file_data:
-                self.config["templates_override"] = json.dumps(
-                    file_data, ensure_ascii=False, indent=2
-                )
-                try:
-                    self.config.save_config()
-                except Exception:
-                    pass
+            # 插件配置是唯一数据源，直接覆盖文件
+            self._tpl_path.parent.mkdir(parents=True, exist_ok=True)
+            self._tpl_path.write_text(override or "{}")
+            return override_data
 
-        return file_data
+        return override_data or file_data
 
     def _save_templates(self, data: dict) -> None:
         self._tpl_path.parent.mkdir(parents=True, exist_ok=True)
