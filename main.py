@@ -1276,9 +1276,11 @@ class WTBot(Star):
                 f"**模板内容：**\n{templates[slug]['description']}\n\n"
                 f"**所需参数：**\n{params_summary or '无'}"
             )
+            yield f"模板已创建: slug={slug}, name={name}"
         except Exception as e:
             logger.error(f"create_template failed: {e}")
             yield event.plain_result(f"创建模板失败: {e}")
+            yield f"创建模板失败: {e}"
 
     @filter.llm_tool(name="weblate_update_template")
     async def update_template(
@@ -1339,9 +1341,11 @@ class WTBot(Star):
             yield event.plain_result(
                 f"模板 **{tpl.get('name', template_name)}** 已更新：\n\n{result}"
             )
+            yield f"模板已更新: {template_name}"
         except Exception as e:
             logger.error(f"update_template failed: {e}")
             yield event.plain_result(f"更新模板失败: {e}")
+            yield f"更新模板失败: {e}"
 
     @filter.llm_tool(name="weblate_delete_template")
     async def delete_template(
@@ -1365,9 +1369,11 @@ class WTBot(Star):
             yield event.plain_result(
                 f"模板 **{tpl.get('name', template_name)}** 已删除。"
             )
+            yield f"模板已删除: {template_name}"
         except Exception as e:
             logger.error(f"delete_template failed: {e}")
             yield event.plain_result(f"删除模板失败: {e}")
+            yield f"删除模板失败: {e}"
 
     @filter.llm_tool(name="weblate_backup_now")
     async def backup_now(self, event: AstrMessageEvent) -> MessageEventResult:

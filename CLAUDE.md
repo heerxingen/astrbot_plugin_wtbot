@@ -45,9 +45,24 @@ cp ~/Documents/Code/WTBot/requirements.txt ~/Astrbot/data/plugins/astrbot_plugin
 - `__init__` 接收 `Context` + `AstrBotConfig`，调用 `super().__init__(context)`
 - 后台任务 `_backup_loop()` 在 `__init__` 中通过 `asyncio.get_running_loop().create_task()` 启动
 
-### LLM Tool 两种返回模式
-- **`return str`** — LLM 可 chain 调用。用于查询类工具（list/show/search/stats）
-- **`yield event.plain_result(...)`** + 返回 `MessageEventResult` — 直接输出给用户，不经过 LLM。用于创建/修改/删除操作和手动备份
+### LLM Tool 返回模式
+
+**三种模式：**
+
+1. **`return str`** — LLM 可 chain 调用。用于查询类工具（list/show/search/stats）
+
+2. **`yield event.plain_result(...)`** — 直接输出给用户，不经过 LLM。LLM 看不到结果，无法基于结果做后续操作
+
+3. **先 `yield plain_result` 再 `yield str`** — 同时通知用户 + 告知 LLM：
+```python
+yield event.plain_result("已创建 XXX（用户可见）")
+yield "已创建: slug=xxx, name=XXX（LLM 可 chain）"
+```
+框架处理逻辑（`astr_agent_tool_exec.py:774-798`）：
+- `MessageEventResult` → `event.set_result()` → 发给用户 → LLM 看不到
+- `str` → 包装成 `CallToolResult` → LLM 收到作为 tool 返回值
+
+用于创建/修改/删除操作，让 LLM 知道操作结果避免重复创建。
 
 ### 同步→异步桥接
 WTapi 基于 `requests`（同步），所有调用通过 `asyncio.to_thread()` 扔线程池：
