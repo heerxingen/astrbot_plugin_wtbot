@@ -1,7 +1,5 @@
 # WTBot — AstrBot Weblate 翻译管理插件
 
-> **AI 模型：DeepSeek v4 Pro** — commit 不写 Co-Authored-By，文档不引用 Claude。
-
 ## 项目概述
 
 WTBot 是 AstrBot 框架的插件，通过 LLM Tool 机制让用户用自然语言管理 Weblate 翻译项目。包含 LLM Tools、模板系统、定时备份、黑名单过滤。
