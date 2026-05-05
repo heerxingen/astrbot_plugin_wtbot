@@ -1187,6 +1187,10 @@ class WeblateBot:
     # Tasks
     # ------------------------------------------------------------------
 
+    def list_tasks(self) -> Iterator[TaskDict]:
+        """List all background tasks."""
+        yield from self._paginate("/tasks/")
+
     def get_task(self, task_uuid: str) -> TaskDict:
         """Get background task status."""
         return self._get(f"/tasks/{task_uuid}/").json()

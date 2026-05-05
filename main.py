@@ -90,6 +90,27 @@ class WTBot(Star):
         filled = round(pct / 10)
         return "█" * filled + "░" * (10 - filled)
 
+    def _fmt_translation(self, t: dict) -> str:
+        lang_name = self._safe(t, "language", "name")
+        pct = float(self._safe(t, "translated_percent", default="0"))
+        total = self._safe(t, "total", default="?")
+        trans = self._safe(t, "translated", default="?")
+        fuzzy = self._safe(t, "fuzzy", default="0")
+        failing = self._safe(t, "failing_checks", default="0")
+        bar = self._pct_bar(pct)
+        if pct >= 80:
+            icon = "🟢"
+        elif pct >= 50:
+            icon = "🟡"
+        else:
+            icon = "🔴"
+        extra = ""
+        if int(fuzzy) > 0:
+            extra += f" 📝{fuzzy}"
+        if int(failing) > 0:
+            extra += f" ❌{failing}"
+        return f"  {icon} {lang_name} {bar} {pct}% ({trans}/{total}){extra}"
+
     @property
     def _blacklist(self) -> set[str]:
         raw = (self.config.get("project_blacklist") or "").strip()
@@ -105,6 +126,24 @@ class WTBot(Star):
     def _resolve_project(self, project_slug: str) -> str:
         """项目 slug 为空时回退到配置的默认项目。"""
         return project_slug or (self.config.get("default_project") or "").strip()
+
+    async def _resolve_components(self, project_slug: str, component_slug: str) -> list[str]:
+        """解析组件 slug → slug 列表。空则列出项目全部组件，逗号分隔。"""
+        if not project_slug:
+            return []
+        if not component_slug:
+            comps = await asyncio.to_thread(
+                lambda: list(self.wt.list_project_components(project_slug))
+            )
+            return [c["slug"] for c in comps if c.get("slug")]
+        return [s.strip() for s in component_slug.split(",") if s.strip()]
+
+    @staticmethod
+    def _resolve_langs(lang: str) -> list[str] | None:
+        """解析语言代码 → 列表。空则返回 None 表示"所有语言"。"""
+        if not lang:
+            return None
+        return [s.strip() for s in lang.split(",") if s.strip()]
 
     def _handle_err(self, name: str, e: Exception) -> str:
         if isinstance(e, WeblateError):
@@ -158,6 +197,8 @@ class WTBot(Star):
             project_slug(string): 项目 slug（非名称）。若用户用名称，先调 weblate_list_projects 获取列表从中匹配。可选，默认使用配置的默认项目
         """
         project_slug = self._resolve_project(project_slug)
+        if not project_slug:
+            return "未指定项目，请在插件配置中设置默认项目或提供 project_slug 参数。"
         try:
             cache_key = f"components_{project_slug}"
             cached = self._cache_get(cache_key)
@@ -192,62 +233,75 @@ class WTBot(Star):
     @filter.llm_tool(name="weblate_translation_status")
     async def translation_status(
         self, event: AstrMessageEvent, project_slug: str = "", component_slug: str = ""
-    ) -> str:
+    ) -> MessageEventResult:
         """查看翻译进度统计。用户说"翻译进度"、"还有多少没翻"时调用。
 
         Args:
             project_slug(string): 项目 slug（非名称）。若用户用名称，先调 weblate_list_projects 获取列表从中匹配。可选，默认使用配置的默认项目
-            component_slug(string): 组件 slug（非名称）。若用户用名称，先调 weblate_list_components 获取列表从中匹配
+            component_slug(string): 组件 slug（非名称），支持逗号分隔多个。不填则显示项目全部组件。若用户用名称，先调 weblate_list_components 获取列表从中匹配
         """
         project_slug = self._resolve_project(project_slug)
+        if not project_slug:
+            yield event.plain_result("未指定项目，请在插件配置中设置默认项目或提供 project_slug 参数。")
+            return
+
         try:
-            cache_key = f"translations_{project_slug}_{component_slug}"
-            cached = self._cache_get(cache_key)
-            translations = (
-                cached
-                if cached is not None
-                else await asyncio.to_thread(
-                    lambda: list(
-                        self.wt.list_component_translations(
-                            project_slug, component_slug
+            components = await self._resolve_components(project_slug, component_slug)
+        except Exception as e:
+            yield event.plain_result(self._handle_err("translation_status", e))
+            return
+
+        if not components:
+            yield event.plain_result(f"项目 {project_slug} 下没有任何组件。")
+            return
+
+        if len(components) == 1:
+            comp = components[0]
+            try:
+                cache_key = f"translations_{project_slug}_{comp}"
+                cached = self._cache_get(cache_key)
+                translations = (
+                    cached
+                    if cached is not None
+                    else await asyncio.to_thread(
+                        lambda c=comp: list(
+                            self.wt.list_component_translations(project_slug, c)
                         )
                     )
                 )
-            )
-            if cached is None:
-                self._cache_set(cache_key, translations)
+                if cached is None:
+                    self._cache_set(cache_key, translations)
+                if not translations:
+                    yield event.plain_result(f"{project_slug}/{comp} 没有翻译。")
+                    return
 
-            if not translations:
-                return f"{project_slug}/{component_slug} 没有翻译。"
-
-            lines = [f"📊 {project_slug}/{component_slug} 翻译进度"]
-            for t in translations:
-                lang_name = self._safe(t, "language", "name")
-                lang_code = self._safe(t, "language_code")
-                pct = float(self._safe(t, "translated_percent", default="0"))
-                total = self._safe(t, "total", default="?")
-                trans = self._safe(t, "translated", default="?")
-                fuzzy = self._safe(t, "fuzzy", default="0")
-                failing = self._safe(t, "failing_checks", default="0")
-                bar = self._pct_bar(pct)
-                # emoji 颜色
-                if pct >= 80:
-                    icon = "🟢"
-                elif pct >= 50:
-                    icon = "🟡"
-                else:
-                    icon = "🔴"
-                extra = ""
-                if int(fuzzy) > 0:
-                    extra += f" 📝{fuzzy}"
-                if int(failing) > 0:
-                    extra += f" ❌{failing}"
-                lines.append(
-                    f"  {icon} {lang_name} ({lang_code}) {bar} {pct}% ({trans}/{total}){extra}"
-                )
-            return "\n".join(lines)
-        except Exception as e:
-            return self._handle_err("translation_status", e)
+                lines = [f"📊 {project_slug}/{comp} 翻译进度"]
+                for t in translations:
+                    lines.append(self._fmt_translation(t))
+                yield event.plain_result("\n".join(lines))
+            except Exception as e:
+                yield event.plain_result(self._handle_err("translation_status", e))
+        else:
+            for comp in components:
+                try:
+                    translations = await asyncio.to_thread(
+                        lambda c=comp: list(
+                            self.wt.list_component_translations(project_slug, c)
+                        )
+                    )
+                    if not translations:
+                        yield event.plain_result(
+                            f"📊 {project_slug}/{comp} 翻译进度\n  （无翻译数据）"
+                        )
+                        continue
+                    lines = [f"📊 {project_slug}/{comp} 翻译进度"]
+                    for t in translations:
+                        lines.append(self._fmt_translation(t))
+                    yield event.plain_result("\n".join(lines))
+                except Exception as e:
+                    yield event.plain_result(
+                        f"⚠️ {project_slug}/{comp}: {self._handle_err('translation_status', e)}"
+                    )
 
     @filter.llm_tool(name="weblate_translation_changes")
     async def translation_changes(
@@ -267,6 +321,10 @@ class WTBot(Star):
             hours(number): 最近多少小时，默认 24
         """
         project_slug = self._resolve_project(project_slug)
+        if not project_slug:
+            return "未指定项目，请在插件配置中设置默认项目或提供 project_slug 参数。"
+        if not component_slug:
+            return "未指定组件，请提供 component_slug 参数（可先调 weblate_list_components 获取列表）。"
         try:
             since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
             params = {"timestamp_after": since}
@@ -324,6 +382,8 @@ class WTBot(Star):
             component_slug(string): 组件 slug（非名称）。若用户用名称，先调 weblate_list_components 获取列表从中匹配，可选。不填则显示所有组件
         """
         project_slug = self._resolve_project(project_slug)
+        if not project_slug:
+            return "未指定项目，请在插件配置中设置默认项目或提供 project_slug 参数。"
         try:
             if component_slug:
                 repo = await asyncio.to_thread(
@@ -373,6 +433,10 @@ class WTBot(Star):
             component_slug(string): 组件 slug（非名称）。若用户用名称，先调 weblate_list_components 获取列表从中匹配
         """
         project_slug = self._resolve_project(project_slug)
+        if not project_slug:
+            return "未指定项目，请在插件配置中设置默认项目或提供 project_slug 参数。"
+        if not component_slug:
+            return "未指定组件，请提供 component_slug 参数（可先调 weblate_list_components 获取列表）。"
         try:
             result = await asyncio.to_thread(
                 self.wt.repo_component, project_slug, component_slug, "pull"
@@ -393,6 +457,10 @@ class WTBot(Star):
             component_slug(string): 组件 slug（非名称）。若用户用名称，先调 weblate_list_components 获取列表从中匹配
         """
         project_slug = self._resolve_project(project_slug)
+        if not project_slug:
+            return "未指定项目，请在插件配置中设置默认项目或提供 project_slug 参数。"
+        if not component_slug:
+            return "未指定组件，请提供 component_slug 参数（可先调 weblate_list_components 获取列表）。"
         try:
             result = await asyncio.to_thread(
                 self.wt.repo_component, project_slug, component_slug, "push"
@@ -420,6 +488,12 @@ class WTBot(Star):
             query(string): 搜索关键词
         """
         project_slug = self._resolve_project(project_slug)
+        if not project_slug:
+            return "未指定项目，请在插件配置中设置默认项目或提供 project_slug 参数。"
+        if not component_slug:
+            return "未指定组件，请提供 component_slug 参数（可先调 weblate_list_components 获取列表）。"
+        if not lang:
+            return "未指定语言，请提供 lang 参数，如 zh_Hans（可先调 weblate_list_languages 获取列表）。"
         try:
             units = await asyncio.to_thread(
                 lambda: list(
@@ -518,6 +592,10 @@ class WTBot(Star):
             component_slug(string): 组件 slug（非名称）。若用户用名称，先调 weblate_list_components 获取列表从中匹配
         """
         project_slug = self._resolve_project(project_slug)
+        if not project_slug:
+            return "未指定项目，请在插件配置中设置默认项目或提供 project_slug 参数。"
+        if not component_slug:
+            return "未指定组件，请提供 component_slug 参数（可先调 weblate_list_components 获取列表）。"
         try:
             result = await asyncio.to_thread(
                 self.wt.repo_component, project_slug, component_slug, "commit"
@@ -547,6 +625,12 @@ class WTBot(Star):
             filter_type(string): 筛选范围 — all(全部), nontranslated(未翻译), todo(待办), fuzzy(需编辑), check(检查失败)。默认 all
         """
         project_slug = self._resolve_project(project_slug)
+        if not project_slug:
+            return "未指定项目，请在插件配置中设置默认项目或提供 project_slug 参数。"
+        if not component_slug:
+            return "未指定组件，请提供 component_slug 参数（可先调 weblate_list_components 获取列表）。"
+        if not lang:
+            return "未指定语言，请提供 lang 参数，如 zh_Hans（可先调 weblate_list_languages 获取列表）。"
         try:
             result = await asyncio.to_thread(
                 self.wt.autotranslate,
@@ -621,6 +705,10 @@ class WTBot(Star):
             locked(string): 可选。传 "true" 锁定，"false" 解锁，不传查看当前状态
         """
         project_slug = self._resolve_project(project_slug)
+        if not project_slug:
+            return "未指定项目，请在插件配置中设置默认项目或提供 project_slug 参数。"
+        if not component_slug:
+            return "未指定组件，请提供 component_slug 参数（可先调 weblate_list_components 获取列表）。"
         try:
             if locked.lower() in ("true", "false", "1", "0"):
                 lock_bool = locked.lower() in ("true", "1")
@@ -637,6 +725,55 @@ class WTBot(Star):
         except Exception as e:
             return self._handle_err("component_lock", e)
 
+    @filter.llm_tool(name="weblate_task_status")
+    async def task_status(
+        self,
+        event: AstrMessageEvent,
+        project_slug: str = "",
+        component_slug: str = "",
+    ) -> MessageEventResult:
+        """查看组件最近的后台任务状态（VCS 拉取/推送/提交等）。用户问"推送成功了吗"、"上次操作有没有报错"时调用。
+
+        Args:
+            project_slug(string): 项目 slug（非名称）
+            component_slug(string): 组件 slug（非名称）
+        """
+        project_slug = self._resolve_project(project_slug)
+        if not project_slug:
+            yield event.plain_result("未指定项目，请在插件配置中设置默认项目或提供 project_slug 参数。")
+            return
+        if not component_slug:
+            yield event.plain_result("未指定组件，请提供 component_slug 参数（可先调 weblate_list_components 获取列表）。")
+            return
+        try:
+            task = await asyncio.to_thread(
+                self.wt.get_component_task, project_slug, component_slug
+            )
+            uuid = task.get("uuid", "?")
+            completed = task.get("completed", False)
+            progress = task.get("progress", 0)
+            result = task.get("result") or {}
+            log = task.get("log", "")
+
+            status = "✅ 已完成" if completed else f"⏳ 进行中 ({progress}%)"
+            lines = [f"📋 {project_slug}/{component_slug} 后台任务 {uuid}"]
+            lines.append(f"  状态: {status}")
+
+            if result:
+                rstr = str(result)
+                if "success" in str(result).lower() or "true" in str(result).lower():
+                    lines.append("  结果: 成功")
+                elif "error" in str(result).lower():
+                    lines.append(f"  结果: 失败 — {rstr[:200]}")
+                else:
+                    lines.append(f"  结果: {rstr[:200]}")
+
+            if log and progress < 100:
+                lines.append(f"  日志: {log[:300]}")
+            yield event.plain_result("\n".join(lines))
+        except Exception as e:
+            yield event.plain_result(self._handle_err("task_status", e))
+
     @filter.llm_tool(name="weblate_translation_stats")
     async def translation_stats(
         self,
@@ -644,31 +781,88 @@ class WTBot(Star):
         project_slug: str = "",
         component_slug: str = "",
         lang: str = "",
-    ) -> str:
-        """获取单个翻译语言的精确统计数据。
+    ) -> MessageEventResult:
+        """获取翻译语言的精确统计数据，支持多组件多语言。
 
         Args:
             project_slug(string): 项目 slug（非名称）
-            component_slug(string): 组件 slug（非名称）
-            lang(string): 语言代码，如 zh_Hans
+            component_slug(string): 组件 slug（非名称），支持逗号分隔多个。不填则显示项目全部组件
+            lang(string): 语言代码如 zh_Hans，支持逗号分隔多个。不填则显示组件全部语言
         """
         project_slug = self._resolve_project(project_slug)
+        if not project_slug:
+            yield event.plain_result("未指定项目，请在插件配置中设置默认项目或提供 project_slug 参数。")
+            return
+
         try:
-            stats = await asyncio.to_thread(
-                self.wt.get_translation_statistics, project_slug, component_slug, lang
-            )
-            return (
-                f"{project_slug}/{component_slug}/{lang} 统计：\n"
-                f"  总条目:   {stats.get('total', 0)}\n"
-                f"  已翻译:   {stats.get('translated', 0)} ({stats.get('translated_percent', 0)}%)\n"
-                f"  待编辑:   {stats.get('fuzzy', 0)}\n"
-                f"  检查失败: {stats.get('failing', 0)}\n"
-                f"  已核准:   {stats.get('approved', 0)}\n"
-                f"  建议数:   {stats.get('suggestions', 0)}\n"
-                f"  评论数:   {stats.get('comments', 0)}"
-            )
+            components = await self._resolve_components(project_slug, component_slug)
         except Exception as e:
-            return self._handle_err("translation_stats", e)
+            yield event.plain_result(self._handle_err("translation_stats", e))
+            return
+
+        if not components:
+            yield event.plain_result(f"项目 {project_slug} 下没有任何组件。")
+            return
+
+        langs = self._resolve_langs(lang)
+
+        # 构建语言代码 → 名称映射
+        lang_names: dict[str, str] = {}
+        try:
+            all_langs = await asyncio.to_thread(lambda: list(self.wt.list_languages()))
+            lang_names = {lg["code"]: lg.get("name", lg["code"]) for lg in all_langs}
+        except Exception:
+            pass
+
+        for comp in components:
+            if langs is None:
+                try:
+                    translations = await asyncio.to_thread(
+                        lambda c=comp: list(
+                            self.wt.list_component_translations(project_slug, c)
+                        )
+                    )
+                    comp_langs = [
+                        t["language_code"]
+                        for t in translations
+                        if t.get("language_code")
+                    ]
+                except Exception as e:
+                    yield event.plain_result(
+                        f"⚠️ {project_slug}/{comp}: 获取语言列表失败: {self._handle_err('translation_stats', e)}"
+                    )
+                    continue
+                if not comp_langs:
+                    yield event.plain_result(
+                        f"📊 {project_slug}/{comp} 没有可用的翻译语言。"
+                    )
+                    continue
+            else:
+                comp_langs = langs
+
+            for lang_code in comp_langs:
+                try:
+                    stats = await asyncio.to_thread(
+                        self.wt.get_translation_statistics,
+                        project_slug,
+                        comp,
+                        lang_code,
+                    )
+                    name = lang_names.get(lang_code, lang_code)
+                    yield event.plain_result(
+                        f"{project_slug}/{comp}/{name} 统计：\n"
+                        f"  总条目:   {stats.get('total', 0)}\n"
+                        f"  已翻译:   {stats.get('translated', 0)} ({stats.get('translated_percent', 0)}%)\n"
+                        f"  待编辑:   {stats.get('fuzzy', 0)}\n"
+                        f"  检查失败: {stats.get('failing', 0)}\n"
+                        f"  已核准:   {stats.get('approved', 0)}\n"
+                        f"  建议数:   {stats.get('suggestions', 0)}\n"
+                        f"  评论数:   {stats.get('comments', 0)}"
+                    )
+                except Exception as e:
+                    yield event.plain_result(
+                        f"⚠️ {project_slug}/{comp}/{lang_code}: {self._handle_err('translation_stats', e)}"
+                    )
 
     @filter.llm_tool(name="weblate_create_unit_comment")
     async def create_unit_comment(
@@ -707,6 +901,15 @@ class WTBot(Star):
             format(string): 文件格式，默认 po，可选 json/csv/xliff 等
         """
         project_slug = self._resolve_project(project_slug)
+        if not project_slug:
+            yield event.plain_result("未指定项目，请在插件配置中设置默认项目或提供 project_slug 参数。")
+            return
+        if not component_slug:
+            yield event.plain_result("未指定组件，请提供 component_slug 参数（可先调 weblate_list_components 获取列表）。")
+            return
+        if not lang:
+            yield event.plain_result("未指定语言，请提供 lang 参数，如 zh_Hans（可先调 weblate_list_languages 获取列表）。")
+            return
         try:
             content = await asyncio.to_thread(
                 self.wt.download_file, project_slug, component_slug, lang, format=format
@@ -746,6 +949,15 @@ class WTBot(Star):
             method(string): 导入方式 — translate(翻译), add(添加源), suggest(建议), fuzzy(标记需编辑), replace(替换)
         """
         project_slug = self._resolve_project(project_slug)
+        if not project_slug:
+            yield event.plain_result("未指定项目，请在插件配置中设置默认项目或提供 project_slug 参数。")
+            return
+        if not component_slug:
+            yield event.plain_result("未指定组件，请提供 component_slug 参数（可先调 weblate_list_components 获取列表）。")
+            return
+        if not lang:
+            yield event.plain_result("未指定语言，请提供 lang 参数，如 zh_Hans（可先调 weblate_list_languages 获取列表）。")
+            return
         if not filepath:
             yield event.plain_result("请提供服务器上的文件路径。")
             return
@@ -933,6 +1145,8 @@ class WTBot(Star):
             value(string): source 源字符串
         """
         project_slug = self._resolve_project(project_slug)
+        if not project_slug:
+            return "未指定项目，请在插件配置中设置默认项目或提供 project_slug 参数。"
         if not component or not key or not value:
             return (
                 "缺少必要参数: component, key, value"
@@ -1180,9 +1394,15 @@ class WTBot(Star):
         Args:
             project_slug(string): 项目 slug（非名称）
             component_slug(string): 组件 slug（非名称）
-            lang(string): 语言代码，如 zh_Hans
+            lang(string): 语言代码，如 zh_Hans。必填，不填无法查询
         """
         project_slug = self._resolve_project(project_slug)
+        if not project_slug:
+            return "未指定项目，请在插件配置中设置默认项目或提供 project_slug 参数。"
+        if not component_slug:
+            return "未指定组件，请提供 component_slug 参数（可先调 weblate_list_components 获取列表）。"
+        if not lang:
+            return "未指定语言，请提供 lang 参数，如 zh_Hans（可先调 weblate_list_languages 获取列表）。"
         try:
             units = await asyncio.to_thread(
                 lambda: list(

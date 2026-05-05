@@ -125,6 +125,13 @@ python3 -m py_compile main.py
 - **修 bug** → 第三位 +1（`v1.2.0` → `v1.2.1`）
 - **第一位（主版本）** → 未经用户明确允许，禁止修改
 - ⚠️ 改版本号必须同步三处：`metadata.yaml` version + `CHANGELOG.md` 新条目置顶 + commit message 含版本号
+- ⚠️ **每个大的功能/修复批次完成后，及时更新这三个文件，不要攒到 commit 前一次性补**：
+  - `metadata.yaml` — version 字段是唯一权威版本号
+  - `CHANGELOG.md` — 功能/修复告一段落立即追加条目，事后补容易遗漏
+  - `README.md` — 功能变了、文件加了/删了同步更新，但不要放版本号/行数/工具数
+- ⚠️ **README.md 禁止放版本号、代码行数、工具数量等需要时刻更新的内容**。README 只放项目介绍、功能概述、安装配置、开发命令等相对稳定的信息
+- ⚠️ **CHANGELOG.md 只写新增/修复/改进条目，不写版本号对应代码行数或工具数**
+- ⚠️ **metadata.yaml version 是唯一权威版本号源**
 
 ### 提交示例
 ```bash
@@ -138,6 +145,31 @@ vim metadata.yaml  # version: 1.2.0 → 1.2.1
 vim CHANGELOG.md   # 新增 v1.2.1 条目
 git add -A && git commit -m "v1.2.1: 修复描述"
 ```
+
+## 防坑指南
+
+### ⚠️ 参数空值必加防护
+
+WTapi 方法把参数直接拼进 URL 路径（如 `/components/{project}/{component}/translations/`）。参数默认 `""` 时不防护 → URL 出现 `//` → Weblate 返回 404。
+
+**规则：** 任何调用 WTapi 路径参数的 LLM Tool，`_resolve_project` 后必须检查空值，component_slug 和 lang 同样。`return str` 工具 `return "提示..."`，`yield` 工具 `yield event.plain_result("提示..."); return`。
+
+**例外：**
+- `component_slug` 用 `_resolve_components` 处理则无需防护（自动列全部或逗号分割）
+- `lang` 在 `translation_changes` 中可选（空时走 `list_component_changes`，不需要 lang）
+
+### ⚠️ 修改后必须同步 + 验证
+
+```bash
+cp ~/Documents/Code/WTBot/main.py ~/Astrbot/data/plugins/astrbot_plugin_wtbot/main.py
+# 同时同步其他修改的文件（metadata.yaml, CHANGELOG.md, wtapi/ 等）
+```
+
+部署目录和开发目录代码不同步是最常见问题。用 `md5sum` 对比验证。
+
+### ⚠️ Weblate API 不暴露 Alerts
+
+Weblate 组件告警（重复字符串、许可证缺失等）仅在 Web UI 渲染，REST API 无对应端点。`failing_checks` 工具用 `has_failing_check` 布尔字段过滤已是最佳实现。
 
 ## Git 约定
 - 推送默认后台，卡了不管

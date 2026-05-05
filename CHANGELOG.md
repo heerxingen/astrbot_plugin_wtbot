@@ -1,5 +1,27 @@
 # Changelog
 
+## v1.5.1
+
+### 修复
+- 12 个 LLM Tool 参数空值防护：`project_slug`/`component_slug`/`lang` 为空时返回明确提示而非 API 404
+- `failing_checks` 修复同上
+- CLAUDE.md 新增"防坑指南"章节
+
+## v1.5.0
+
+### 新工具
+- `weblate_task_status` — 查看组件后台任务状态（VCS pull/push/commit 结果），yield 直接输出
+
+### SDK
+- WTapi 新增 `list_tasks` 方法
+
+## v1.4.0
+
+### 改进
+- `weblate_translation_status` 改为直接输出（yield），支持多组件（逗号分隔 / 不填自动列全部）
+- `weblate_translation_stats` 改为直接输出（yield），支持多组件 + 多语言
+- 翻译进度输出只显示语言名称，不再附带语言代码
+
 ## v1.3.0
 
 ### 新增
