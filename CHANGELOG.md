@@ -1,5 +1,20 @@
 # Changelog
 
+## v1.7.0
+
+### 新增
+- `weblate_create_key`：创建翻译 key（源字符串），自动从组件获取源语言
+- `weblate_add_translation`：为已有 key 添加目标语言译文，支持单语言和逗号分隔多语言
+
+### 移除
+- `weblate_create_unit`：已由 `weblate_create_key` + `weblate_add_translation` 替代
+- `weblate_create_unit_multi`：已由 `weblate_add_translation` 的 `langs` 参数替代
+
+## v1.6.0
+
+### 新增
+- `weblate_create_unit_multi`：批量多语言创建翻译单元，一次 tool 调用创建同一 key 的多个语言翻译，减少 LLM tool 往返消耗
+
 ## v1.5.3
 
 ### 修复

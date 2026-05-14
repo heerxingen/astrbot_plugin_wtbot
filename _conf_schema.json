@@ -57,10 +57,10 @@
     }
   },
   "default_lang": {
-    "description": "默认语言代码",
+    "description": "默认目标语言代码",
     "type": "string",
-    "hint": "创建翻译单元时的默认目标语言，如 en、zh_Hans",
-    "default": "en"
+    "hint": "创建翻译单元时的默认目标语言，如 zh_Hans、ja",
+    "default": "zh_Hans"
   },
   "cache_ttl": {
     "description": "缓存过期时间（秒）",

@@ -1115,48 +1115,166 @@ class WTBot(Star):
         except Exception as e:
             return self._handle_err("show_template", e)
 
-    @filter.llm_tool(name="weblate_create_unit")
-    async def create_unit(
+    @filter.llm_tool(name="weblate_create_key")
+    async def create_key(
         self,
         event: AstrMessageEvent,
         project_slug: str = "",
         component: str = "",
-        lang: str = "",
         key: str = "",
         value: str = "",
-    ) -> str:
-        """创建单个翻译单元。LLM 根据模板描述推断参数后调用。
+    ) -> MessageEventResult:
+        """创建新的翻译 key（源字符串）。在组件源语言中创建 key，后续通过 weblate_add_translation 添加各语言翻译。源语言自动从组件获取。
 
         Args:
             project_slug(string): 项目 slug（非名称）。可选，默认使用配置的默认项目
             component(string): 目标组件 slug（非名称）
-            lang(string): 语言代码，如 en
-            key(string): 翻译 key
-            value(string): source 源字符串
+            key(string): 翻译 key，如 "home.title"
+            value(string): 源字符串（源语言文本），如 "Welcome"
         """
         project_slug = self._resolve_project(project_slug)
         if not project_slug:
-            return "未指定项目，请在插件配置中设置默认项目或提供 project_slug 参数。"
+            yield event.plain_result("未指定项目，请在插件配置中设置默认项目或提供 project_slug 参数。")
+            return
         if not component or not key or not value:
-            return (
-                "缺少必要参数: component, key, value"
-                + f" (got component={component}, key={key}, value={value})"
+            yield event.plain_result(
+                f"缺少必要参数: component, key, value (got component={component!r}, key={key!r}, value={value!r})"
             )
-        default_lang = (self.config.get("default_lang") or "en").strip()
-        lang = lang or default_lang
+            return
+        try:
+            cmp = await asyncio.to_thread(self.wt.get_component, project_slug, component)
+            source_lang = (cmp.get("source_language") or {}).get("code", "en")
+        except Exception as e:
+            err = self._handle_err("create_key: get_component", e)
+            yield event.plain_result(err)
+            yield err
+            return
         try:
             result = await asyncio.to_thread(
                 self.wt.create_unit,
                 project_slug,
                 component,
-                lang,
+                source_lang,
                 key=key,
                 value=[value],
             )
             uid = result.get("id", "?")
-            return f"已创建 unit #{uid}: key={key}, value={value}, lang={lang}, project={project_slug}, component={component}"
+            user_msg = f"已创建翻译 key **{key}** (unit #{uid})\n源语言: {source_lang}\n源字符串: {value}"
+            llm_msg = f"已创建 key={key}, unit_id={uid}, source_lang={source_lang}, project={project_slug}, component={component}"
+            yield event.plain_result(user_msg)
+            yield llm_msg
         except Exception as e:
-            return self._handle_err("create_unit", e)
+            err = self._handle_err("create_key", e)
+            yield event.plain_result(err)
+            yield err
+
+    @filter.llm_tool(name="weblate_add_translation")
+    async def add_translation(
+        self,
+        event: AstrMessageEvent,
+        project_slug: str = "",
+        component: str = "",
+        key: str = "",
+        target: str = "",
+        lang: str = "",
+        langs: str = "",
+    ) -> MessageEventResult:
+        """为已有翻译 key 添加译文。需先通过 weblate_create_key 创建 key。支持单语言或逗号分隔多语言（所有语言用同一译文）。
+
+        Args:
+            project_slug(string): 项目 slug（非名称）。可选，默认使用配置的默认项目
+            component(string): 目标组件 slug（非名称）
+            key(string): 要翻译的 key
+            target(string): 目标语言译文
+            lang(string): 单个目标语言代码，如 "zh_Hans"
+            langs(string): 备选：逗号分隔的多个语言代码，如 "zh_Hans,ja,ko"。与 lang 二选一
+        """
+        project_slug = self._resolve_project(project_slug)
+        if not project_slug:
+            yield event.plain_result("未指定项目，请在插件配置中设置默认项目或提供 project_slug 参数。")
+            return
+        if not component or not key or not target:
+            yield event.plain_result(
+                f"缺少必要参数: component, key, target (got component={component!r}, key={key!r}, target={target!r})"
+            )
+            return
+
+        lang_parts: list[str] = []
+        if lang:
+            lang_parts.append(lang.strip())
+        if langs:
+            lang_parts.extend(s.strip() for s in langs.split(",") if s.strip())
+        seen: set[str] = set()
+        lang_list: list[str] = []
+        for lang_code in lang_parts:
+            if lang_code not in seen:
+                seen.add(lang_code)
+                lang_list.append(lang_code)
+        if not lang_list:
+            yield event.plain_result("缺少必要参数: lang 或 langs，请提供目标语言代码。")
+            return
+
+        try:
+            results = await asyncio.to_thread(
+                self._do_add_translation,
+                project_slug,
+                component,
+                key,
+                target,
+                lang_list,
+            )
+        except Exception as e:
+            err = self._handle_err("add_translation", e)
+            yield event.plain_result(err)
+            yield err
+            return
+
+        ok = [r for r in results if r["ok"]]
+        fail = [r for r in results if not r["ok"]]
+        user_lines = [f"为 key **{key}** 添加译文: {target}"]
+        llm_parts = [f"key={key}, target={target}, project={project_slug}, component={component}"]
+        if ok:
+            ids = ", ".join(f"{r['lang']} #{r['unit_id']}" for r in ok)
+            user_lines.append(f"成功 {len(ok)}/{len(results)}: {ids}")
+            llm_parts.append(f"成功 {len(ok)}/{len(results)}: {ids}")
+        if fail:
+            details = "; ".join(f"{r['lang']}: {r['error']}" for r in fail)
+            user_lines.append(f"失败 {len(fail)}/{len(results)}: {details}")
+            llm_parts.append(f"失败 {len(fail)}/{len(results)}: {details}")
+        yield event.plain_result("\n".join(user_lines))
+        yield "; ".join(llm_parts)
+
+    def _do_add_translation(
+        self, project: str, component: str, key: str, target: str, lang_list: list[str]
+    ) -> list[dict]:
+        results: list[dict] = []
+        for lang_code in lang_list:
+            try:
+                units = list(self.wt.list_translation_units(project, component, lang_code, q=key))
+                unit = None
+                for u in units:
+                    uk = u.get("key") or u.get("context") or ""
+                    if uk == key:
+                        unit = u
+                        break
+                if unit is None:
+                    results.append({
+                        "lang": lang_code, "ok": False, "unit_id": None,
+                        "error": f"未找到 key={key} 在 {lang_code} 中的 unit，请先 weblate_create_key",
+                    })
+                    continue
+                self.wt.update_unit(unit["id"], target=[target], state=20)
+                results.append({"lang": lang_code, "ok": True, "unit_id": unit["id"], "error": None})
+            except WeblateError as e:
+                results.append({
+                    "lang": lang_code, "ok": False, "unit_id": None,
+                    "error": f"[{e.status_code}] {e.detail}",
+                })
+            except Exception as e:
+                results.append({
+                    "lang": lang_code, "ok": False, "unit_id": None, "error": str(e),
+                })
+        return results
 
     # ---- yield plain_result 的 Tool（直接输出用户） ----
 
