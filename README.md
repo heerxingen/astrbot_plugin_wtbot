@@ -1,3 +1,7 @@
+# 石墩子
+
+![Stone Badge](https://stone.professorlee.work/api/stone/heerxingen/astrbot_plugin_wtbot)
+
 # WTBot — AstrBot Weblate 翻译管理插件
 
 通过 LLM Tool 机制让用户用自然语言管理 Weblate 翻译项目。AstrBot 框架插件。
